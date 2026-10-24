@@ -116,7 +116,13 @@ export function Screen({
   }
 
   const opener = openerOf(host)
-  const open = useCallback((card: Card) => void openCard(card.url, card.title, opener), [opener])
+  const open = useCallback(
+    (card: Card) => {
+      setHeld(card.ref)
+      void openCard(card.url, card.title, opener)
+    },
+    [opener],
+  )
 
   const [measured, measuredWidth] = useWidth()
   const width = forced ?? measuredWidth
@@ -125,7 +131,8 @@ export function Screen({
   /* THE rule for parts: a card is anchored to its refs, every spelling. */
   const focus = useFocus({ parts: host.parts, epic: host.epic, projectPath: host.projectPath })
   const placed = useMemo(() => board.board?.filter((one) => one.shown).flatMap((one) => one.cards) ?? [], [board.board])
-  const { shown, empty } = focus.narrow(placed, (one) => one.card.refs.map((ref) => ({ ref })), { noun: 'card' })
+  const [held, setHeld] = useState<string | null>(null)
+  const { shown, empty } = focus.narrow(placed, (one) => one.card.refs.map((ref) => ({ ref })), { noun: 'card', keep: (one) => one.card.ref === held })
   const shownRefs = useMemo(() => new Set(shown.map((one) => one.card.ref)), [shown])
 
   const lines = [board.readError, board.said, board.reading ? missingSaid(board.reading.missing) : null, ...(board.reading?.failed ?? []), board.kept?.problem].filter(
@@ -173,6 +180,7 @@ export function Screen({
                 onOpen={open}
                 onMove={board.move}
                 onReset={board.reset}
+                onHold={(card) => setHeld(card.ref)}
                 doneDays={settings?.doneDays ?? 14}
                 narrowed={pickedParts(host.parts).length > 0}
               />

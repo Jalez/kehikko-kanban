@@ -126,6 +126,16 @@ describe('the board', () => {
     await waitFor(() => screen.getByText('No card is in the picked part.'))
   })
 
+  test('keeps the card the person is on in sight when the pick changes', async () => {
+    const { api } = fakeApi()
+    const { rerender } = render(<Screen host={host()} api={api} now={now} />)
+    await waitFor(() => card('gh#1'))
+    fireEvent.focus(card('gh#1'))
+    rerender(<Screen host={host({ parts: parts(['docs']) })} api={api} now={now} />)
+    await waitFor(() => expect(refsIn('todo')).toEqual(['#12', 'gh#1']))
+    expect(refsIn('progress')).toEqual([])
+  })
+
   test('tells its server every card it drew, before any part narrows them', async () => {
     const { api, seen } = fakeApi()
     render(<Screen host={host({ parts: parts(['docs']) })} api={api} now={now} />)

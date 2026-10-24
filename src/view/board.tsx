@@ -38,6 +38,8 @@ export interface BoardViewProps {
   onOpen(card: Card): void
   onMove(card: Card, to: ColumnId, seenIndex: number, seenRefs: readonly string[]): void
   onReset(card: Card): void
+  /** The card the person is on (focused or opened): kept in sight when the parts change. */
+  onHold?(card: Card): void
   /** Days Done keeps, for the line saying older items are left off. */
   doneDays: number
   /** Whether parts are picked: then nothing about what the pick leaves out is counted. */
@@ -230,7 +232,7 @@ export function BoardView(props: BoardViewProps) {
               {folded ? null : (
                 <ol {...dropOn(one.id)} className={cn('flex min-h-12 flex-1 flex-col gap-1.5 overflow-y-auto px-1.5 pb-1.5', narrow && 'pt-1.5')} aria-label={one.name}>
                   {list.map((placed, at) => (
-                    <li key={placed.card.key} className="relative">
+                    <li key={placed.card.key} className="relative" onFocus={() => props.onHold?.(placed.card)}>
                       {drop?.column === one.id && drop.index === at ? <DropLine /> : null}
                       <BoardCard
                         card={placed.card}

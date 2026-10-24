@@ -171,16 +171,16 @@ export function BoardCard({ card, column, move, density, columns, dragging, onOp
             </span>
           </div>
           {move ? (
-            <div className="text-muted-foreground flex min-w-0 items-center gap-1 border-t pt-1 text-[11px]">
+            <div className="text-muted-foreground flex min-w-0 flex-wrap items-center gap-x-1 border-t pt-1 text-[11px]">
               <MoveIcon className="size-3 shrink-0" aria-hidden />
-              <span className="min-w-0 flex-1 truncate" title={`${movedSaid(move)}. The tracker has it in ${COLUMN_NAMES[move.from]}.`}>
+              <span className="min-w-0 flex-1 break-words" title={`${movedSaid(move)}. The tracker has it in ${COLUMN_NAMES[move.from]}.`}>
                 {movedSaid(move)}
               </span>
               <Button
                 data-no-open
                 variant="ghost"
                 size="sm"
-                className="h-5 gap-1 px-1 text-[11px]"
+                className="ml-auto h-5 gap-1 px-1 text-[11px]"
                 aria-label={`Put ${card.short} back in ${COLUMN_NAMES[move.from]}, where the tracker has it`}
                 onClick={onReset}
               >
