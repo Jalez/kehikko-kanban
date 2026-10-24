@@ -3,10 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Kanban, a module a Kehikot host frames. An app: its own store, its own page, its own port.",
+  "description": "Kanban, a module a Kehikot host frames: the open epic's issues, pull requests and merge requests as a board, from the host's tracker reading.",
   "scripts": {
     "dev": "vite",
-    "start": "vite",
+    "build": "bun run build.ts",
+    "start": "bun run serve.ts",
     "stub": "bun run dev/stub-host.ts",
     "register": "bun run register.ts",
     "rename": "bun run dev/rename.ts",

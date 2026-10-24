@@ -1,24 +1,64 @@
 import { useMemo } from 'react'
 
-import { pickedParts } from 'kehikot-module-protocol'
-import { useHost, type Host as ProtocolHost } from 'kehikot-module-protocol/client/react'
+import { CONTENT_HOST, contentStamp, type TrackerSignal } from 'kehikot-module-protocol'
 import type { HostEvents } from 'kehikot-module-protocol/client'
+import { useHost, type Host as ProtocolHost, type KeptCodec } from 'kehikot-module-protocol/client/react'
 
 import { ID } from '../../manifest.ts'
+import { isColumn, type ColumnId } from '../board/columns.ts'
+import { DENSITIES, type Density } from '../header.ts'
 
 /**
- * What the screen needs from the host: the protocol's `useHost` — which has
- * already put the theme on <html> and flattened the context — and the parts
- * picked, by name. A plain object, so a screen renders in a test without a host.
+ * The view a person left the board in, kept by the host for this container (`state.set`, capability
+ * `state:keep`): an opaque string to the host, read back here and checked field by field.
+ */
+export interface View {
+  density: Density
+  showDone: boolean
+  /** The column shown when the container is too narrow for all of them. */
+  column: ColumnId | null
+}
+
+export const DEFAULT_VIEW: View = { density: 'comfortable', showDone: true, column: null }
+
+export const VIEW_CODEC: KeptCodec<View> = {
+  read: (state) => {
+    if (!state) return null
+    try {
+      const raw = JSON.parse(state) as Partial<View> | null
+      return {
+        density: DENSITIES.includes(raw?.density as Density) ? (raw!.density as Density) : DEFAULT_VIEW.density,
+        showDone: typeof raw?.showDone === 'boolean' ? raw.showDone : DEFAULT_VIEW.showDone,
+        column: isColumn(raw?.column) ? raw.column : null,
+      }
+    } catch {
+      return null
+    }
+  },
+  write: (view) => JSON.stringify(view),
+}
+
+/**
+ * What the screen needs from the host: the protocol's `useHost` — which has already put the theme
+ * on <html> and flattened the context — with the tracker's signal and the content stamp the board
+ * re-reads on. A plain object, so a screen renders in a test without a host.
  */
 export interface Host
-  extends Pick<ProtocolHost, 'where' | 'project' | 'projectPath' | 'epic' | 'parts' | 'theme' | 'header' | 'activity'> {
-  /** The names of the parts of the epic picked in the host's bar. Empty is the whole epic. */
-  picked: string[]
+  extends Pick<
+    ProtocolHost<View>,
+    'where' | 'project' | 'projectPath' | 'epic' | 'parts' | 'theme' | 'header' | 'request' | 'answers' | 'openAddress' | 'refreshable' | 'remember' | 'kept'
+  > {
+  /** When the host's tracker reading last changed, and whether a read is in flight. */
+  tracker: TrackerSignal
+  /** Moves when the epic's own material changes: a ref added to a step. */
+  content: string
 }
 
 export function useKehikot(events: HostEvents = {}): Host {
-  const host = useHost(ID, events)
-  const picked = useMemo(() => pickedParts(host.parts).map((part) => part.heading || part.id), [host.parts])
-  return useMemo(() => ({ ...host, picked }), [host, picked])
+  const host = useHost<View>(ID, events, { kept: VIEW_CODEC })
+  const at = host.context?.tracker?.at ?? null
+  const refreshing = host.context?.tracker?.refreshing ?? false
+  const content = contentStamp(host.context?.content, { sources: [CONTENT_HOST, 'kehikot.journeys'], epic: host.epic })
+  const tracker = useMemo(() => ({ at, refreshing }), [at, refreshing])
+  return useMemo(() => ({ ...host, tracker, content }), [host, tracker, content])
 }

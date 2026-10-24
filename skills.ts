@@ -32,7 +32,7 @@ export const VERSION_SLOT = '{{version}}'
 export const OFFERED = [
   {
     name: 'kanban',
-    summary: 'Type /kanban: an agent reads the notes kept about this epic and tells you which are still open.',
+    summary: 'Type /kanban: an agent reads the epic’s board and tells you what is in each column, what looks stuck, and what was moved by hand.',
   },
 ] as const
 
