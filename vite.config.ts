@@ -12,7 +12,7 @@ import { isSkillPath } from './skills.ts'
 /** Once listening, say the port really bound (`serves()` may have moved it): the skills name that origin. */
 function origin(): Plugin {
   return {
-    name: 'example-origin',
+    name: 'kanban-origin',
     apply: 'serve',
     configureServer(server) {
       server.httpServer?.once('listening', () => {
@@ -45,7 +45,7 @@ export default defineConfig({
       manifest: MANIFEST,
       answer,
       build: BUILD,
-      page: { title: 'Example', ticket: TICKET },
+      page: { title: 'Kanban', ticket: TICKET },
       ours: (path) => path === '/healthz' || path === '/mcp' || path.startsWith('/api/') || isSkillPath(path),
     }),
     react(),

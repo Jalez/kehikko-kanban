@@ -8,7 +8,7 @@ import { ID } from './manifest.ts'
 
 /**
  * This module's material, kept inside the project it is about:
- * `<project>/.kehikot/example/notes.json`.
+ * `<project>/.kehikot/kanban/notes.json`.
  *
  * The folder and the join are the protocol's (`moduleDir`, `moduleFile`), so every
  * module agrees on where data lives, and `bun test` checks nothing here builds a

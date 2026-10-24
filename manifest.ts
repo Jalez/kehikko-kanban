@@ -5,9 +5,9 @@ import pkg from './package.json'
 /*
  * Who this module is. `bun run rename <name>` rewrites the id, the name, the
  * folder and the port the first time; after that they never change, because the
- * id names the folder its data is kept in (`<project>/.kehikot/example/`).
+ * id names the folder its data is kept in (`<project>/.kehikot/kanban/`).
  */
-export const ID = 'kehikot.example'
+export const ID = 'kehikot.kanban'
 /** The module's version: package.json's, the one place it is written. A release is tagged with it. */
 export const VERSION: string = pkg.version
 
@@ -17,7 +17,7 @@ export const VERSION: string = pkg.version
  * drift up from one never lands on a neighbour's number; a host that installs
  * the module hands it a port of its own (`$PORT`).
  */
-export const PREFERRED_PORT = 9500
+export const PREFERRED_PORT = 8060
 
 /**
  * What this module says about itself, parsed when imported: a manifest no host
@@ -30,7 +30,7 @@ export const DECLARED: Manifest = manifestSchema.parse({
   kind: MANIFEST_KIND,
   protocol: PROTOCOL,
   id: ID,
-  name: 'Example',
+  name: 'Kanban',
   version: VERSION,
   /* The format of what this module keeps under `.kehikot/`. Raise it only in
      the release that first writes data an older release cannot read. */
@@ -40,14 +40,14 @@ export const DECLARED: Manifest = manifestSchema.parse({
   tags: ['notes'],
   /* Composed into every agent's prompt on the canvas: what this module's presence obliges an agent to do. */
   guidance:
-    'This canvas has Example on it: short notes about the epic, each filed under the parts that were picked when it was written. '
+    'This canvas has Kanban on it: short notes about the epic, each filed under the parts that were picked when it was written. '
     + 'Read them with `list_notes` before you change what they talk about. You cannot add, finish or remove a note: that is the person\'s.',
   entry: '/app',
-  modes: [{ id: 'example', label: 'Example', scope: 'epic' }],
+  modes: [{ id: 'kanban', label: 'Kanban', scope: 'epic' }],
   mcp: {
     url: '/mcp',
     transport: 'http',
-    about: 'Read the notes a person keeps about an epic in Example. Read-only.',
+    about: 'Read the notes a person keeps about an epic in Kanban. Read-only.',
   },
   extensions: { emits: [], consumes: [] },
   /* parts: every note is anchored to the parts picked when it was written, and the list narrows to the parts picked now. */

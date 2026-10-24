@@ -3,7 +3,7 @@ import { LIMITS, activityItemsSchema, type ActivityItem } from 'kehikot-module-p
 import type { Note } from '../store.ts'
 
 /**
- * What Example reports to the host's Inbox (`activity.set`, capability
+ * What Kanban reports to the host's Inbox (`activity.set`, capability
  * `activity:report`): every open note of the open epic, as `attention` with low
  * priority, at its place. The list is WHOLE each time: a note finished or
  * removed is simply not in the next one, and the host takes it out.

@@ -9,7 +9,7 @@ import { ASK, MANIFEST, TICKET, answer, saidNotes, servingAt } from '../doors.ts
 import { ID } from '../manifest.ts'
 import type { Note } from '../store.ts'
 
-const project = realpathSync(mkdtempSync(join(tmpdir(), 'kehikko-example-doors-')))
+const project = realpathSync(mkdtempSync(join(tmpdir(), 'kehikko-kanban-doors-')))
 afterAll(() => rmSync(project, { recursive: true, force: true }))
 
 /* A host that holds exactly one project, and no conversation with a place: the door asks it, never a real one. */

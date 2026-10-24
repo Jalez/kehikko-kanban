@@ -1,7 +1,7 @@
 import { headerItemsSchema, type HeaderItem } from 'kehikot-module-protocol'
 
 /**
- * What Example puts in its container's header: one View switch, open notes or
+ * What Kanban puts in its container's header: one View switch, open notes or
  * all of them. The host draws it (View menu) and relays a press; this page owns
  * the state and declares the whole list again whenever it changes.
  *
@@ -38,6 +38,6 @@ export function headerItems(showing: Showing): HeaderItem[] {
 
 /** What a press asks for: the view, or a sentence saying why it was not taken. */
 export function pressed(item: string, value: unknown): Showing | string {
-  if (item !== 'show') return `Example has nothing called "${item.slice(0, 40)}" to press.`
-  return SHOWING.includes(value as Showing) ? (value as Showing) : `"${String(value).slice(0, 40)}" is not a view of Example.`
+  if (item !== 'show') return `Kanban has nothing called "${item.slice(0, 40)}" to press.`
+  return SHOWING.includes(value as Showing) ? (value as Showing) : `"${String(value).slice(0, 40)}" is not a view of Kanban.`
 }

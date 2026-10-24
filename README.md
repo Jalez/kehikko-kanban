@@ -1,10 +1,10 @@
-# Example — a Kehikot module
+# Kanban — a Kehikot module
 
 <!-- One paragraph: what a person gets from this module, in their words. Rewrite it when you make the module yours. -->
 Short notes about the epic you are working on, kept with the project and filed
 under the parts of the epic you had picked when you wrote them.
 
-- **Follows the parts you pick.** Pick parts in Kehikot's bar and Example shows
+- **Follows the parts you pick.** Pick parts in Kehikot's bar and Kanban shows
   only the notes written under them; with none picked, the whole epic.
 - **Open notes wait in your Inbox.** Each open note of the epic is in Kehikot's
   Inbox until you tick it off.
@@ -15,13 +15,13 @@ under the parts of the epic you had picked when you wrote them.
 ## Skills
 
 <!-- One bullet per skill: what typing it does. Only a person runs a skill. -->
-- **`/example`**: an agent reads the notes of this epic and tells you which are
+- **`/kanban`**: an agent reads the notes of this epic and tells you which are
   still open. Offered in Kehikot's Settings › Skills like any module's.
 
 ## Data
 
 <!-- Every file this module keeps, and where. Only ever under .kehikot/<folder>/. -->
-- `<project>/.kehikot/example/notes.json` — the notes, with the epic and parts
+- `<project>/.kehikot/kanban/notes.json` — the notes, with the epic and parts
   each was written under.
 
 ## Try it

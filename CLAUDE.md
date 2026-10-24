@@ -1,4 +1,4 @@
-# Example — notes for agents
+# Kanban — notes for agents
 
 A Kehikot module: a program with its own server, page and MCP door that a
 Kehikot host frames in a container. The whole guide is
@@ -66,5 +66,5 @@ Kehikot installs and updates this module from its GitHub releases, not from `mai
    `git tag -a v<version> -m v<version> <merge-commit> && git push origin v<version>`.
 5. `.github/workflows/release.yml` checks that the tag matches `package.json`
    and is on `main`, checks the notes, typechecks and tests, then publishes the
-   release "Example <version>". If a check fails nothing is published: fix it on
+   release "Kanban <version>". If a check fails nothing is published: fix it on
    `main`, then tag again.

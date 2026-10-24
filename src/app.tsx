@@ -66,13 +66,13 @@ export function Screen({
       {/* Hosted, the host draws the header items in the container's own header. Alone, the page does. */}
       {host.where === 'unhosted' ? (
         <header className="flex min-h-9 shrink-0 items-center gap-2 border-b px-2">
-          <span className="text-xs font-medium">Example</span>
+          <span className="text-xs font-medium">Kanban</span>
           <HeaderMenus items={items} onPress={onPress} />
         </header>
       ) : null}
       <main className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-3">
         {cover ? (
-          <Cover state={cover} name="Example" onRetry={() => setAgain((n) => n + 1)} />
+          <Cover state={cover} name="Kanban" onRetry={() => setAgain((n) => n + 1)} />
         ) : (
           <>
             <Where host={host} />
