@@ -13,7 +13,7 @@ If the answer above does not name `kehikot.kanban`, or you have no `mcp__kanban_
 
 Otherwise:
 
-1. Call `board`. Give `project` and `epic` only when the person named them; without them the module answers for this conversation's place, and says so. If it says no page has drawn the board yet, tell the person to open Kanban on a kehikko with that epic, and stop.
+1. Call `board`. Give `project` and `epic` only when the person named them; without them the module answers for this conversation's place, and says so. If it says the board could not be read, tell the person what it said in one line, and stop.
 2. Tell the person, in at most eight lines: how many cards each column holds; what has waited in review longest or has changes requested; and which cards were moved by hand (by them or an agent) away from where the tracker has them. If `$ARGUMENTS` asks about something narrower, answer that instead.
 3. Do not move cards unless the person asked you to. A move with `move_card` stays on this board and never changes GitHub or GitLab; say so whenever you make one.
 

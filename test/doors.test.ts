@@ -3,7 +3,8 @@ import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { SETTINGS_PATH, skillPath, skillTextIssue } from 'kehikot-module-protocol'
+import { SERVER_ASK_PATH, SERVER_PASS_PATH, SETTINGS_PATH, serverAskSchema, skillPath, skillTextIssue, trackerRowSchema, type TrackerRow } from 'kehikot-module-protocol'
+import { serverPassReply } from 'kehikot-module-protocol/serve'
 
 import { ASK, CLOCK, MANIFEST, TICKET, answer, forgetSeen, servingAt } from '../doors.ts'
 import { ID } from '../manifest.ts'
@@ -14,14 +15,33 @@ import { EPIC, NOW, ROWS } from './fixtures.ts'
 const project = realpathSync(mkdtempSync(join(tmpdir(), 'kehikko-kanban-doors-')))
 afterAll(() => rmSync(project, { recursive: true, force: true }))
 
-/* A host that holds exactly one project, and no conversation with a place: the door asks it, never a real one. */
+/**
+ * A host that holds exactly one project, and no conversation with a place: the door asks it, never a
+ * real one. It answers this module's SERVER (`/host/server-ask`, protocol 2.19.0) as a host does:
+ * first it asks the module whether it minted the question's pass — the protocol's doors answer that,
+ * here `serverPassReply` in the same process — then it answers `tracker.get` from `HOST.rows`. With
+ * `HOST.answers` false it is a host before 2.19.0, which has no such route.
+ */
+const HOST = { answers: true, rows: ROWS as TrackerRow[], asked: [] as Array<Record<string, unknown>>, refused: null as null | 'grant' }
 ASK.options = {
   env: { KEHIKOT_ORIGINS: 'http://127.0.0.1:1' },
-  fetch: (async (input: string | URL | Request) => {
+  fetch: (async (input: string | URL | Request, init?: RequestInit) => {
     const url = new URL(String(input))
     if (url.pathname === '/host/is-project') {
       const path = url.searchParams.get('path')
       return Response.json(path === project ? { ok: true, project: true, path } : { ok: true, project: false })
+    }
+    if (url.pathname === SERVER_ASK_PATH) {
+      if (!HOST.answers) return new Response('Not here.', { status: 404 })
+      const ask = serverAskSchema.parse(JSON.parse(String(init?.body)))
+      const vouched = serverPassReply('GET', SERVER_PASS_PATH, new URLSearchParams({ pass: ask.pass }))
+      if (ask.module !== ID || !(vouched?.body as { minted: boolean }).minted) return Response.json({ ok: false, reason: 'failed', error: 'Not vouched for.', refused: 'pass' })
+      if (HOST.refused) return Response.json({ ok: false, reason: 'failed', error: 'This module’s manifest does not ask for trackers:read.', refused: HOST.refused })
+      if (ask.project !== project) return Response.json({ ok: false, reason: 'failed', error: 'No project there.', refused: 'project' })
+      HOST.asked.push(ask.params)
+      const refs = ask.params.epic ? HOST.rows.map((one) => one.ref) : (ask.params.refs as string[])
+      const rows = HOST.rows.filter((one) => refs.includes(one.ref))
+      return Response.json({ ok: true, data: { at: new Date(NOW).toISOString(), refreshing: false, sources: [], rows, missing: [] } })
     }
     return Response.json({ ok: true, place: null })
   }) as typeof fetch,
@@ -46,6 +66,10 @@ const read = async () => (await answer('GET', '/api/board', new URLSearchParams(
 
 beforeEach(async () => {
   forgetSeen()
+  HOST.answers = true
+  HOST.rows = ROWS
+  HOST.asked = []
+  HOST.refused = null
   await write({ project, epic: EPIC, op: 'reset-all' })
 })
 
@@ -105,23 +129,47 @@ describe('the MCP door', () => {
     for (const one of tools) expect(Object.keys(one.inputSchema.properties).slice(0, 2)).toEqual(['project', 'epic'])
   })
 
-  test('before any page drew the board, board says so, and move_card refuses', async () => {
+  test('with no page open, board reads the host’s tracker reading itself: every column and card, the titles as quoted text', async () => {
     const said = await tool('board', { project, epic: EPIC })
     expect(said.error).toBe(false)
-    expect(said.text).toContain('No Kanban page has drawn the board of the epic launch')
-    expect((await tool('move_card', { project, epic: EPIC, ref: 'gh#1', column: 'done' })).error).toBe(true)
-  })
-
-  test('board says every column and card, the titles as quoted text', async () => {
-    await write({ project, epic: EPIC, op: 'seen', cards })
-    const said = await tool('board', { project, epic: EPIC })
+    expect(said.text).toContain('The Kanban board of the epic launch, from the host’s tracker reading of 2026-10-24 12:00 UTC')
     expect(said.text).toContain('## To do (todo): 2')
     expect(said.text).toContain('- gh#1 Issue "Sign-in page for the beta" — Open, nobody on it · labels: web, p1')
     expect(said.text).toContain('## Done (done): 2, and 1 finished more than 14 days ago left off')
+    expect(said.text).not.toContain('page last drew')
+    /* The epic with its parts, in one question; then the changes that close its open issues, already held. */
+    expect(HOST.asked[0]).toEqual({ epic: EPIC, parts: true })
+  })
+
+  test('a branch linked to an issue moves its card to In progress', async () => {
+    const linked = trackerRowSchema.parse({ ...ROWS[0]!, branches: [{ name: '1-sign-in-page', url: 'https://github.com/example-org/demo/tree/1-sign-in-page' }] })
+    HOST.rows = [linked, ...ROWS.slice(1)]
+    const said = await tool('board', { project, epic: EPIC })
+    expect(said.text).toContain('## To do (todo): 1')
+    expect(said.text).toContain('- gh#1 Issue "Sign-in page for the beta" — Branch 1-sign-in-page')
+  })
+
+  test('a host before the server’s question: the board as the page last drew it, said so; with no page either, it says why and move_card refuses', async () => {
+    HOST.answers = false
+    const none = await tool('board', { project, epic: EPIC })
+    expect(none.error).toBe(false)
+    expect(none.text).toContain('could not be read from the host’s tracker reading')
+    expect(none.text).toContain('no Kanban page has drawn it')
+    expect((await tool('move_card', { project, epic: EPIC, ref: 'gh#1', column: 'done' })).error).toBe(true)
+    await write({ project, epic: EPIC, op: 'seen', cards })
+    const page = await tool('board', { project, epic: EPIC })
+    expect(page.text).toContain('as its page last drew it')
+    expect(page.text).toContain('## To do (todo): 2')
+  })
+
+  test('a host that will not answer this module gets nothing past its refusal', async () => {
+    HOST.refused = 'grant'
+    const said = await tool('board', { project, epic: EPIC })
+    expect(said.text).toContain('trackers:read')
+    expect(said.text).not.toContain('## To do')
   })
 
   test('move_card moves a card on this board, marked as an agent’s, and back again', async () => {
-    await write({ project, epic: EPIC, op: 'seen', cards })
     const moved = await tool('move_card', { project, epic: EPIC, ref: 'gh#1', column: 'In review', by: 'Claude Code' })
     expect(moved.error).toBe(false)
     expect(moved.text).toContain('marked as an agent’s move (Claude Code)')
@@ -134,7 +182,6 @@ describe('the MCP door', () => {
   })
 
   test('move_card refuses a card that is not on the board, a column that is not one, and a project the host does not hold', async () => {
-    await write({ project, epic: EPIC, op: 'seen', cards })
     expect((await tool('move_card', { project, epic: EPIC, ref: 'gh#99', column: 'done' })).error).toBe(true)
     expect((await tool('move_card', { project, epic: EPIC, ref: 'gh#1', column: 'later' })).error).toBe(true)
     expect((await tool('board', { project: '/not/a/project', epic: EPIC })).error).toBe(true)

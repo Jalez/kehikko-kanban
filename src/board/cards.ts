@@ -129,7 +129,8 @@ const shortOf = (row: TrackerRow) => `${row.kind === 'change' && row.tracker ===
  * - **In review**: an open pull or merge request that is not a draft, or one whose review was asked
  *   for; an open issue whose change (one that says it closes the issue) is in review.
  * - **In progress**: a draft change nobody was asked to review; an open issue with a draft change,
- *   or with somebody assigned.
+ *   with somebody assigned, or with a branch linked to it (GitHub's Development branches, GitLab's
+ *   related branches: somebody started).
  * - **To do**: open, and nobody on it.
  *
  * `linked` holds the rows of the changes that say they close an issue (`links` with `closed-by`), by
@@ -158,6 +159,8 @@ export function trackedOf(row: TrackerRow, linked: ReadonlyMap<string, TrackerRo
   if (drafted) return { column: 'progress', why: `Draft ${shortOf(drafted.row)}` }
   const people = assigneesOf(row)
   if (people.length) return { column: 'progress', why: people.length === 1 ? `Assigned to ${people[0]!.name}` : `Assigned to ${people.length} people` }
+  const branch = row.branches?.[0]
+  if (branch) return { column: 'progress', why: `Branch ${branch.name}`.slice(0, 120) }
   return { column: 'todo', why: 'Open, nobody on it' }
 }
 

@@ -8,7 +8,7 @@ login and never calls a tracker itself.
 | Column | What the tracker says |
 |---|---|
 | To do | Open, and nobody is on it. |
-| In progress | Open and assigned; a draft pull or merge request; an issue whose change is a draft. |
+| In progress | Open and assigned; a draft pull or merge request; an issue whose change is a draft; an issue with a branch linked to it (GitHub's Development branches, GitLab's related branches). |
 | In review | An open pull or merge request, or one whose review was asked for; an issue whose change is in review. |
 | Done | Closed or merged, within the last 14 days (a setting). Foldable. |
 
@@ -42,9 +42,10 @@ The MCP door at `/mcp`:
 
 - **`board`** (reads): every column and card of an epic — ref, type, title,
   where the tracker has it and why, review, assignees, labels, and any move.
-  Whatever parts are picked. It answers from the board the Kanban page last
-  drew: the tracker reading is handed to the page, not to this module's
-  server, so with no page open on the epic since the module started it says so.
+  Whatever parts are picked. The module's server reads the host's tracker
+  reading itself (protocol 2.19.0), so it answers whether or not a Kanban page
+  is open. From a Kehikot too old for that it answers from the board its page
+  last drew, and says so.
 - **`move_card`** (writes, this board only): moves a card, marked "Moved here
   by an agent (<who>)". Moving it to the column the tracker has it in puts it
   back. Never a claim that work is done.

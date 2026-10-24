@@ -29,6 +29,18 @@ describe('where the tracker puts a card', () => {
     expect([card('gh#2').tracked, card('gh#2').why]).toEqual(['progress', 'Assigned to Mona Lisa'])
   })
 
+  test('an open issue with a branch linked to it is In progress: somebody started', () => {
+    const branched = cardsOf([{ ...ROWS[0]!, branches: [{ name: '1-sign-in-page' }] }])[0]!
+    expect([branched.tracked, branched.why]).toEqual(['progress', 'Branch 1-sign-in-page'])
+    /* Assigned says who; a branch is the reason only when nobody is. */
+    const both = cardsOf([{ ...ROWS[1]!, branches: [{ name: '2-limits' }] }])[0]!
+    expect([both.tracked, both.why]).toEqual(['progress', 'Assigned to Mona Lisa'])
+    /* Read and none, or not read at all: To do as before. */
+    expect(cardsOf([{ ...ROWS[0]!, branches: [] }])[0]!.tracked).toBe('todo')
+    /* A closed issue with a branch left behind is Done. */
+    expect(cardsOf([{ ...ROWS[6]!, branches: [{ name: '7-logo' }] }])[0]!.tracked).toBe('done')
+  })
+
   test('an open change is In review, a draft In progress, and an issue follows the change that closes it', () => {
     expect([card('gh#4').tracked, card('gh#4').why]).toEqual(['review', 'Review requested'])
     expect([card('gh#5').tracked, card('gh#5').why]).toEqual(['progress', 'Draft pull request'])

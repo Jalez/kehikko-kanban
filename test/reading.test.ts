@@ -8,13 +8,16 @@ import { ROWS } from './fixtures.ts'
 
 const row = (ref: string) => ROWS.find((one) => one.ref === ref)!
 
-/** A host whose epic names three refs; everything else is asked by ref. Records each question. */
-function host(epicRefs: string[]) {
+/**
+ * A host whose epic names these refs; everything else is asked by ref. Records each question. A host
+ * before protocol 2.19.0 strips `parts`; a newer one answers the parts' refs too (`partRefs`).
+ */
+function host(epicRefs: string[], partRefs: string[] | null = null) {
   const asked: Array<Record<string, unknown>> = []
   const request = async (method: string, params: Record<string, unknown> = {}) => {
     expect(method).toBe('tracker.get')
     asked.push(params)
-    const refs = params.epic ? epicRefs : (params.refs as string[])
+    const refs = params.epic ? [...epicRefs, ...(params.parts === true && partRefs ? partRefs : [])] : (params.refs as string[])
     const rows = ROWS.filter((one) => refs.includes(one.ref))
     return {
       at: params.epic ? '2026-10-24T10:00:00.000Z' : '2026-10-24T11:00:00.000Z',
@@ -32,7 +35,7 @@ describe('reading the board from the host', () => {
     const { request, asked } = host(['gh#1', 'gh#3', 'gh#404'])
     const parts: EpicPart[] = [{ id: 'web', heading: 'Web', refs: ['gh#1', 'gh#2', 'gh#9'], picked: false }]
     const read = await readBoard(request, 'launch', parts)
-    expect(asked).toEqual([{ epic: 'launch' }, { refs: ['gh#2', 'gh#9'] }, { refs: ['gh#4'] }])
+    expect(asked).toEqual([{ epic: 'launch', parts: true }, { refs: ['gh#2', 'gh#9'] }, { refs: ['gh#4'] }])
     expect(read.rows.map((one) => one.ref)).toEqual(['gh#1', 'gh#3', 'gh#2'])
     expect(read.linked.map((one) => one.ref)).toContain('gh#4')
     expect(read.missing).toEqual([
@@ -50,8 +53,17 @@ describe('reading the board from the host', () => {
   test('nothing more is asked when the epic names everything', async () => {
     const { request, asked } = host(['gh#1', 'gh#2'])
     await readBoard(request, 'launch', [{ id: 'api', heading: 'API', refs: ['gh#2'], picked: true }])
-    expect(asked).toEqual([{ epic: 'launch' }])
+    expect(asked).toEqual([{ epic: 'launch', parts: true }])
     expect(row('gh#1').ref).toBe('gh#1')
+  })
+
+  test('a host that answers the parts’ refs with the epic’s is asked nothing more for them; the server, told no parts, gets them too', async () => {
+    const { request, asked } = host(['gh#1'], ['gh#2', 'gh#5'])
+    const read = await readBoard(request, 'launch', [{ id: 'api', heading: 'API', refs: ['gh#2', 'gh#5'], picked: false }])
+    expect(asked).toEqual([{ epic: 'launch', parts: true }])
+    expect(read.rows.map((one) => one.ref)).toEqual(['gh#1', 'gh#2', 'gh#5'])
+    const fromServer = await readBoard(host(['gh#1'], ['gh#2', 'gh#5']).request, 'launch', [])
+    expect(fromServer.rows.map((one) => one.ref)).toEqual(['gh#1', 'gh#2', 'gh#5'])
   })
 
   test('what is missing is said in one sentence', () => {

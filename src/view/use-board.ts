@@ -17,7 +17,8 @@ import type { Host } from '../wire/use-kehikot.ts'
  * - this module's own moves and settings, from its server, asked again every couple of seconds while
  *   the page is visible — an agent's `move_card` and a change in the host's settings form arrive that
  *   way;
- * - what the page drew, told to its server for the MCP door.
+ * - what the page drew, told to its server for the MCP door when the host is too old to answer the
+ *   server itself (protocol before 2.19.0).
  *
  * A move is drawn at once and sent after; a refusal puts the board back and says why.
  */
@@ -100,7 +101,7 @@ export function useBoard(host: Pick<Host, 'projectPath' | 'epic' | 'parts' | 're
 
   const cards = useMemo(() => (reading ? cardsOf(reading.rows, reading.linked) : []), [reading])
 
-  /* What the page drew, for the MCP door: every card, before any part narrows it. */
+  /* What the page drew, for the MCP door on a host before 2.19.0: every card, before any part narrows it. */
   const seenJson = useMemo(() => JSON.stringify(cards.map(seenOf)), [cards])
   useEffect(() => {
     if (!projectPath || !epic || !reading) return
