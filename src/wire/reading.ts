@@ -6,9 +6,12 @@ import { LIMITS, trackerReadingResult, type EpicPart, type TrackerMissing, type 
  *
  * Three questions, each answered at once from the host's reading (`tracker.get`):
  *
- * 1. `{ epic }`: the refs the epic names, in its steps and its umbrella.
- * 2. `{ refs }` for the refs the epic's parts hold that the epic does not name (another module filed
- *    them under a part), so a part's work is on its board.
+ * 1. `{ epic, parts: true }`: the refs the epic names, in its steps and its umbrella, and the refs
+ *    its parts hold (another module filed them under a part), so a part's work is on its board.
+ * 2. `{ refs }` for the parts' refs the first answer did not cover: none from a host that knows
+ *    `parts` (protocol 2.19.0); every one of them from an older host, which answers the epic's own.
+ *    `parts` are the ones the page was told (`context.parts`); the server, which is told none, has
+ *    the host's answer to 1.
  * 3. `{ refs }` for the changes that say they close an open issue on the board and are not on it, so
  *    the issue can follow its change into In progress or In review. These are not cards.
  *
@@ -47,7 +50,7 @@ async function byRefs(request: Request, refs: readonly string[]): Promise<Tracke
 }
 
 export async function readBoard(request: Request, epic: string, parts: readonly EpicPart[]): Promise<BoardReading> {
-  const first = await get(request, { epic })
+  const first = await get(request, { epic, parts: true })
   const named = new Set([...first.rows.map((row) => row.ref), ...first.missing.map((one) => one.ref)])
   const extra = [...new Set(parts.flatMap((part) => part.refs))].filter((ref) => !named.has(ref))
   const second = await byRefs(request, extra)

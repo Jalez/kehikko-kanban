@@ -15,7 +15,7 @@ export const COLUMN_NAMES: Record<ColumnId, string> = {
 /** What each column holds, said once: the page's tooltips, the MCP door and the README say this. */
 export const COLUMN_MEANS: Record<ColumnId, string> = {
   todo: 'Open, and nobody is on it.',
-  progress: 'Open and assigned, or with a draft change.',
+  progress: 'Open and assigned, with a draft change, or with a branch linked to it.',
   review: 'An open pull or merge request, or one whose review was asked for.',
   done: 'Closed or merged, recently.',
 }

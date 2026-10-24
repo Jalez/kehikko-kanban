@@ -12,8 +12,8 @@ what follows is how THIS repository is built, and the rules a change here keeps.
 | `manifest.ts` | Who the module is. `DECLARED`, `SETTING_FIELDS`; the version is package.json's. |
 | `doors.ts` | Every door but the page: `/healthz`, `/mcp` (`board`, `move_card`), `/api/board`, the settings door, the skills. Pure `answer()`; tests call it directly. |
 | `store.ts` | The only code that touches project data: `.kehikot/kanban/moves.json` and `settings.json`. |
-| `src/board/` | Pure and shared by the page and the server: `cards.ts` (a row → a card, and where the TRACKER puts it), `moves.ts` (moves laid over that, the order, placing), `seen.ts` (what the page drew, for the door). |
-| `src/wire/reading.ts` | What the page asks the host: `tracker.get` for the epic, its parts' refs, and the changes that close its issues. |
+| `src/board/` | Pure and shared by the page and the server: `cards.ts` (a row → a card, and where the TRACKER puts it), `moves.ts` (moves laid over that, the order, placing), `seen.ts` (a card as the door says it, and the board in lines). |
+| `src/wire/reading.ts` | What the page AND the server ask the host: `tracker.get` for the epic with its parts' refs, the parts' refs an older host did not cover, and the changes that close its issues. |
 | `src/view/` | The board (`board.tsx`), a card (`card.tsx`), faces, and `use-board.ts` (reading, polling, moves). |
 | `src/header.ts` | The header items: pure functions of state. |
 | `src/app.tsx` | The page. `Screen` renders from a plain `Host`, so tests need no host. |
@@ -43,9 +43,11 @@ what follows is how THIS repository is built, and the rules a change here keeps.
 - **A move never leaves the board.** Moves are kept in `moves.json` and never
   written to a tracker; every place a move is made or said says so. A move
   stands only while the tracker still has the card where it was moved from.
-- **The door answers from what the page drew.** A module's server cannot read
-  the tracker reading; the page posts its cards (`op: 'seen'`, in memory only)
-  and `board`/`move_card` answer from that, un-narrowed.
+- **The door reads the host's reading itself.** `board`/`move_card` ask the
+  host through `askHost` (protocol 2.19.0, held to `trackers:read`), the same
+  `readBoard` the page uses, un-narrowed, page open or not. Only from a host too
+  old to answer a module's server do they fall back to what the page last drew
+  (`op: 'seen'`, in memory only), and say so.
 - **No Inbox items.** Nothing here needs the person; it declares no
   `activity:report`.
 - **Ask only for what is called.** Each method needs its capability in

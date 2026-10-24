@@ -29,7 +29,7 @@ export interface Api {
   move(project: string, epic: string, move: MoveSent): Promise<EpicMoves>
   reset(project: string, epic: string, ref: string): Promise<EpicMoves>
   resetAll(project: string, epic: string): Promise<EpicMoves>
-  /** Tell the server what the page drew, for the MCP door. */
+  /** Tell the server what the page drew, for the MCP door on a host too old to answer the server itself. */
   seen(project: string, epic: string, cards: CardSeen[]): Promise<void>
 }
 

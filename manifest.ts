@@ -23,7 +23,7 @@ export const PREFERRED_PORT = 8060
  */
 export const SETTING_FIELDS = [
   { key: 'column.todo', label: 'Show the To do column', type: 'boolean', default: true, description: 'Open items nobody is on.' },
-  { key: 'column.progress', label: 'Show the In progress column', type: 'boolean', default: true, description: 'Open items somebody is assigned to, or with a draft change.' },
+  { key: 'column.progress', label: 'Show the In progress column', type: 'boolean', default: true, description: 'Open items somebody is assigned to, with a draft change, or with a branch linked to it.' },
   { key: 'column.review', label: 'Show the In review column', type: 'boolean', default: true, description: 'Open pull and merge requests, and items whose change is in review.' },
   { key: 'column.done', label: 'Show the Done column', type: 'boolean', default: true, description: 'Closed and merged items.' },
   {
@@ -74,8 +74,9 @@ export const DECLARED: Manifest = manifestSchema.parse({
     protocol: `>=${PROTOCOL} <${PROTOCOL + 1}`,
     /*
      * Only what is called:
-     * - trackers:read — `tracker.get`, the host's one reading of GitHub and GitLab. This module holds no
-     *   credential and never calls a tracker.
+     * - trackers:read — `tracker.get`, the host's one reading of GitHub and GitLab, asked by the page and,
+     *   for the MCP door, by the server (`askHost`, protocol 2.19.0). This module holds no credential
+     *   and never calls a tracker.
      * - trackers:refresh — `tracker.refresh`, only when the person presses the host's refresh control.
      * - address:open — a card pressed is handed to the canvas (`address.open`), a new tab otherwise.
      * - state:keep — the view (compact or comfortable, Done open or folded, the column shown when narrow).
