@@ -1,112 +1,150 @@
-import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, realpathSync, renameSync, statSync, writeFileSync } from 'node:fs'
 import { isAbsolute } from 'node:path'
 
-import { LIMITS, kehikotDir, moduleDir, moduleFile, within } from 'kehikot-module-protocol'
+import { EPIC_SLUG, KEHIKOT_DIR, kehikotDir, moduleDir, moduleFile, within } from 'kehikot-module-protocol'
 
 import { ID } from './manifest.ts'
+import { COLUMN_IDS } from './src/board/columns.ts'
+import { DEFAULT_SETTINGS, epicMovesOf, isEmpty, noMoves, type BoardSettings, type EpicMoves } from './src/board/moves.ts'
 
 /**
- * This module's material, kept inside the project it is about:
- * `<project>/.kehikot/example/notes.json`.
+ * Kanban's material, kept inside the project it is about, and nowhere else:
  *
- * The folder and the join are the protocol's (`moduleDir`, `moduleFile`), so every
- * module agrees on where data lives, and `bun test` checks nothing here builds a
- * path of its own (test/storage-boundary.test.ts). There is no default project:
- * with none, every read is empty and every write refused, because a guessed
- * folder is one where work is written and never seen again.
+ * - `<project>/.kehikot/kanban/moves.json`: the cards a person (or an agent) moved on each epic's
+ *   board, and the order within each column. Nothing in it is written to a tracker.
+ * - `<project>/.kehikot/kanban/settings.json`: which columns show, and how long Done keeps items.
  *
- * Both sides are realpath'd before the containment check, so a `.kehikot` that
- * is a symlink out of the project is refused rather than followed.
+ * The folder and the join are the protocol's (`moduleDir`, `moduleFile`). With no project, every read
+ * is empty and every write refused. Both sides are realpath'd before the containment check, so a
+ * `.kehikot` that is a symlink out of the project is refused rather than followed.
  */
-export const FILE = 'notes'
-
-/** One note: what it says, the epic and parts it was written in, and whether it is done. */
-export interface Note {
-  id: string
-  text: string
-  /** The epic it belongs to; `null` for the project as a whole. */
-  epic: string | null
-  /** The ids of the parts picked when it was written. Empty: the whole epic. */
-  parts: string[]
-  done: boolean
-  /** When it was written, as an ISO time. */
-  at: string
-}
-
-/** What a page may ask of the store. One edit per call. */
-export type Edit =
-  | { op: 'add'; text: string; epic: string | null; parts: string[] }
-  | { op: 'done'; id: string; done: boolean }
-  | { op: 'remove'; id: string }
+export const MOVES = 'moves'
+export const SETTINGS = 'settings'
+export const MOVES_FILE = `${KEHIKOT_DIR}/kanban/${MOVES}.json`
+export const SETTINGS_FILE = `${KEHIKOT_DIR}/kanban/${SETTINGS}.json`
+const FORMAT = 1
 
 export type Result<T> = { ok: true; value: T } | { ok: false; error: string }
 
-/** A note's text is a line or two, not a document. */
-export const NOTE_MAX = 500
-/** A project keeps at most this many notes; the oldest done ones are the ones to remove. */
-export const NOTES_MAX = 500
-
 const NO_PROJECT = 'Nothing has said which project this is, so there is nowhere to keep anything. Open a project in Kehikot.'
+const NO_EPIC = 'Say which epic: a board is one epic’s.'
 
-/** Every note kept for one project, oldest first. */
-export function readNotes(projectPath: string | null | undefined): Result<Note[]> {
-  const file = fileFor(projectPath, false)
+/* ------------------------------------------------------------------ *
+ * Moves.
+ * ------------------------------------------------------------------ */
+
+interface MovesFile {
+  version: number
+  epics: Record<string, unknown>
+  [other: string]: unknown
+}
+
+function readMovesFile(projectPath: string | null | undefined): Result<MovesFile> {
+  const file = fileFor(projectPath, MOVES, false)
   if (!file.ok) return file
-  if (!existsSync(file.value)) return { ok: true, value: [] }
+  if (!existsSync(file.value)) return { ok: true, value: { version: FORMAT, epics: {} } }
   try {
-    const parsed = JSON.parse(readFileSync(file.value, 'utf8')) as { notes?: unknown }
-    return { ok: true, value: Array.isArray(parsed.notes) ? parsed.notes.filter(isNote) : [] }
+    const parsed = JSON.parse(readFileSync(file.value, 'utf8')) as Partial<MovesFile> | null
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('not an object')
+    const epics = parsed.epics && typeof parsed.epics === 'object' && !Array.isArray(parsed.epics) ? parsed.epics : {}
+    return { ok: true, value: { ...parsed, version: typeof parsed.version === 'number' ? parsed.version : FORMAT, epics: { ...epics } } }
   } catch {
-    return { ok: false, error: `${file.value} is not readable JSON. Nothing was changed; fix or remove the file.` }
+    return { ok: false, error: `${MOVES_FILE} in this project is not readable JSON. Nothing was changed; fix or remove the file.` }
   }
 }
 
-/** Apply one edit and keep the result. Written to a temporary file and renamed, so a crash never leaves half a file. */
-export function editNotes(projectPath: string | null | undefined, edit: Edit): Result<Note[]> {
-  const read = readNotes(projectPath)
+/** The moves kept for one epic's board. */
+export function readMoves(projectPath: string | null | undefined, epic: string | null | undefined): Result<EpicMoves> {
+  if (!epic || !EPIC_SLUG.test(epic)) return { ok: false, error: NO_EPIC }
+  const read = readMovesFile(projectPath)
   if (!read.ok) return read
-  const next = applied(read.value, edit)
-  if (!next.ok) return next
-  const file = fileFor(projectPath, true)
-  if (!file.ok) return file
-  const temporary = `${file.value}.${process.pid}.tmp`
-  writeFileSync(temporary, `${JSON.stringify({ notes: next.value }, null, 2)}\n`)
-  renameSync(temporary, file.value)
-  return next
+  return { ok: true, value: Object.hasOwn(read.value.epics, epic) ? epicMovesOf(read.value.epics[epic]) : noMoves() }
 }
 
-/** The edit, as a pure function of the list. Refused with a sentence, never clipped. */
-export function applied(notes: readonly Note[], edit: Edit): Result<Note[]> {
-  if (edit.op === 'add') {
-    const text = edit.text.trim()
-    if (!text) return { ok: false, error: 'A note needs some words.' }
-    if (text.length > NOTE_MAX) return { ok: false, error: `A note is at most ${NOTE_MAX} characters; this one is ${text.length}.` }
-    if (notes.length >= NOTES_MAX) return { ok: false, error: `This project already keeps ${NOTES_MAX} notes. Remove some done ones first.` }
-    const parts = edit.parts.slice(0, LIMITS.PLACE_PARTS)
-    return { ok: true, value: [...notes, { id: randomUUID(), text, epic: edit.epic, parts, done: false, at: new Date().toISOString() }] }
+/**
+ * Change one epic's moves and keep the result. Every other epic, and every key this module does not
+ * know, stays as it was. Written to a temporary file and renamed. No change: no write.
+ */
+export function editMoves(projectPath: string | null | undefined, epic: string | null | undefined, edit: (moves: EpicMoves) => EpicMoves): Result<EpicMoves> {
+  if (!epic || !EPIC_SLUG.test(epic)) return { ok: false, error: NO_EPIC }
+  const read = readMovesFile(projectPath)
+  if (!read.ok) return read
+  const was = Object.hasOwn(read.value.epics, epic) ? epicMovesOf(read.value.epics[epic]) : noMoves()
+  const next = edit(was)
+  if (JSON.stringify(next) === JSON.stringify(was)) return { ok: true, value: was }
+  const epics = { ...read.value.epics }
+  if (isEmpty(next)) delete epics[epic]
+  else epics[epic] = next
+  const written = writeJson(projectPath, MOVES, { ...read.value, version: FORMAT, epics })
+  return written ? { ok: false, error: written } : { ok: true, value: next }
+}
+
+/* ------------------------------------------------------------------ *
+ * Settings: the store behind the settings door (protocol 2.15.0).
+ * ------------------------------------------------------------------ */
+
+export const SETTING_KEYS = {
+  column: (id: (typeof COLUMN_IDS)[number]) => `column.${id}`,
+  doneDays: 'doneDays',
+} as const
+
+/** The raw values kept, by key, and a sentence when the file could not be read. */
+export function readSettingValues(projectPath: string | null | undefined): { values: Record<string, unknown>; problem?: string } {
+  const file = fileFor(projectPath, SETTINGS, false)
+  if (!file.ok) return { values: {}, problem: file.error }
+  if (!existsSync(file.value)) return { values: {} }
+  try {
+    const parsed = JSON.parse(readFileSync(file.value, 'utf8')) as { values?: unknown } | null
+    const values = parsed?.values
+    return { values: values && typeof values === 'object' && !Array.isArray(values) ? { ...(values as Record<string, unknown>) } : {} }
+  } catch {
+    return { values: {}, problem: `${SETTINGS_FILE} in this project is not readable JSON. The defaults are shown; fix or remove the file.` }
   }
-  if (!notes.some((note) => note.id === edit.id)) return { ok: false, error: 'That note is not here any more.' }
-  if (edit.op === 'done') return { ok: true, value: notes.map((note) => (note.id === edit.id ? { ...note, done: edit.done } : note)) }
-  return { ok: true, value: notes.filter((note) => note.id !== edit.id) }
 }
 
-function isNote(value: unknown): value is Note {
-  const note = value as Partial<Note> | null
-  return (
-    !!note
-    && typeof note.id === 'string'
-    && typeof note.text === 'string'
-    && (note.epic === null || typeof note.epic === 'string')
-    && Array.isArray(note.parts)
-    && note.parts.every((part) => typeof part === 'string')
-    && typeof note.done === 'boolean'
-    && typeof note.at === 'string'
-  )
+/** Write one checked value, keeping every other key. A sentence to refuse, null when written. */
+export function writeSettingValue(projectPath: string | null | undefined, key: string, value: unknown): string | null {
+  const read = readSettingValues(projectPath)
+  if (read.problem) return read.problem
+  const file = fileFor(projectPath, SETTINGS, false)
+  let whole: Record<string, unknown> = {}
+  if (file.ok && existsSync(file.value)) {
+    try {
+      whole = JSON.parse(readFileSync(file.value, 'utf8')) as Record<string, unknown>
+    } catch {
+      return `${SETTINGS_FILE} in this project is not readable JSON. Nothing was changed.`
+    }
+  }
+  return writeJson(projectPath, SETTINGS, { ...whole, version: FORMAT, values: { ...read.values, [key]: value } })
 }
 
-/** The data file's path, checked to resolve inside the project. `make` creates the folder first. */
-function fileFor(projectPath: string | null | undefined, make: boolean): Result<string> {
+/** The board's settings, each value checked, the default where one is missing or of another type. */
+export function boardSettings(values: Record<string, unknown>): BoardSettings {
+  const columns = { ...DEFAULT_SETTINGS.columns }
+  for (const id of COLUMN_IDS) {
+    const one = values[SETTING_KEYS.column(id)]
+    if (typeof one === 'boolean') columns[id] = one
+  }
+  const days = values[SETTING_KEYS.doneDays]
+  const doneDays = typeof days === 'number' && Number.isFinite(days) && days >= 0 ? Math.min(Math.floor(days), 3650) : DEFAULT_SETTINGS.doneDays
+  return { columns, doneDays }
+}
+
+/* ------------------------------------------------------------------ *
+ * The files.
+ * ------------------------------------------------------------------ */
+
+function writeJson(projectPath: string | null | undefined, name: string, value: unknown): string | null {
+  const file = fileFor(projectPath, name, true)
+  if (!file.ok) return file.error
+  const temporary = `${file.value}.${process.pid}.tmp`
+  writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`)
+  renameSync(temporary, file.value)
+  return null
+}
+
+/** A data file's path, checked to resolve inside the project. `make` creates the folder first. */
+function fileFor(projectPath: string | null | undefined, name: string, make: boolean): Result<string> {
   const root = projectRoot(projectPath)
   if (!root.ok) return root
   const dir = moduleDir(root.value, ID)!
@@ -119,7 +157,7 @@ function fileFor(projectPath: string | null | undefined, make: boolean): Result<
     const after = escapesAny(root.value, levels)
     if (after) return { ok: false, error: after }
   }
-  const file = moduleFile(root.value, ID, FILE)!
+  const file = moduleFile(root.value, ID, name)!
   if (existsSync(file)) {
     const out = escapes(root.value, file)
     if (out) return { ok: false, error: out }

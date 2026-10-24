@@ -1,15 +1,17 @@
-import { afterAll, describe, expect, test } from 'bun:test'
-import { mkdtempSync, realpathSync, rmSync } from 'node:fs'
+import { afterAll, beforeEach, describe, expect, test } from 'bun:test'
+import { existsSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { skillPath, skillTextIssue } from 'kehikot-module-protocol'
+import { SETTINGS_PATH, skillPath, skillTextIssue } from 'kehikot-module-protocol'
 
-import { ASK, MANIFEST, TICKET, answer, saidNotes, servingAt } from '../doors.ts'
+import { ASK, CLOCK, MANIFEST, TICKET, answer, forgetSeen, servingAt } from '../doors.ts'
 import { ID } from '../manifest.ts'
-import type { Note } from '../store.ts'
+import { cardsOf } from '../src/board/cards.ts'
+import { seenOf } from '../src/board/seen.ts'
+import { EPIC, NOW, ROWS } from './fixtures.ts'
 
-const project = realpathSync(mkdtempSync(join(tmpdir(), 'kehikko-example-doors-')))
+const project = realpathSync(mkdtempSync(join(tmpdir(), 'kehikko-kanban-doors-')))
 afterAll(() => rmSync(project, { recursive: true, force: true }))
 
 /* A host that holds exactly one project, and no conversation with a place: the door asks it, never a real one. */
@@ -24,13 +26,28 @@ ASK.options = {
     return Response.json({ ok: true, place: null })
   }) as typeof fetch,
 }
+CLOCK.now = () => NOW
 
 const none = new URLSearchParams()
+const cards = cardsOf(ROWS, ROWS).map(seenOf)
 
 async function rpc(method: string, params: Record<string, unknown> = {}) {
   const reply = await answer('POST', '/mcp', none, { jsonrpc: '2.0', id: 1, method, params }, null)
-  return reply?.body as { result: { tools?: { name: string; annotations?: { readOnlyHint?: boolean }; inputSchema: { properties: object } }[]; content?: { text: string }[]; isError?: boolean } }
+  return reply?.body as {
+    result: { tools?: { name: string; annotations?: { readOnlyHint?: boolean }; inputSchema: { properties: object } }[]; content?: { text: string }[]; isError?: boolean }
+  }
 }
+const tool = async (name: string, args: Record<string, unknown>) => {
+  const said = (await rpc('tools/call', { name, arguments: args })).result
+  return { text: said.content?.[0]?.text ?? '', error: said.isError === true }
+}
+const write = (body: Record<string, unknown>, ticket: string | null = TICKET) => answer('POST', '/api/board', none, body, ticket)
+const read = async () => (await answer('GET', '/api/board', new URLSearchParams({ project, epic: EPIC }), null, null))?.body as { moves: { moved: Record<string, { to: string; by: { kind: string; name?: string } }> } }
+
+beforeEach(async () => {
+  forgetSeen()
+  await write({ project, epic: EPIC, op: 'reset-all' })
+})
 
 describe('the doors', () => {
   test('the health check says which module this is', async () => {
@@ -43,40 +60,88 @@ describe('the doors', () => {
     expect((await answer('GET', '/api/nothing', none, null, null))?.status).toBe(404)
   })
 
-  test('only this page writes: without its ticket a write is refused, with it the note is kept', async () => {
-    const body = { projectPath: project, op: 'add', text: 'Ask about the deadline', epic: 'launch', parts: ['design'] }
-    expect((await answer('POST', '/api/notes', none, body, null))?.status).toBe(403)
-    expect((await answer('POST', '/api/notes', none, body, 'not-the-ticket'))?.status).toBe(403)
-    expect((await answer('POST', '/api/notes', none, body, TICKET))?.status).toBe(200)
-    const read = await answer('GET', '/api/notes', new URLSearchParams({ projectPath: project }), null, null)
-    expect((read?.body as { notes: Note[] }).notes.map((note) => note.text)).toEqual(['Ask about the deadline'])
+  test('only this page writes: without its ticket a move is refused, with it the move is kept', async () => {
+    const body = { project, epic: EPIC, op: 'move', ref: 'gh#1', to: 'review', tracked: 'todo', refs: [], index: 0 }
+    expect((await write(body, null))?.status).toBe(403)
+    expect((await write(body, 'not-the-ticket'))?.status).toBe(403)
+    expect((await write(body))?.status).toBe(200)
+    expect((await read()).moves.moved['gh#1']).toMatchObject({ to: 'review', by: { kind: 'person' } })
+    expect((await write({ project, epic: EPIC, op: 'reset', ref: 'gh#1' }))?.status).toBe(200)
+    expect((await read()).moves.moved).toEqual({})
   })
 
-  test('a malformed edit is refused with a sentence', async () => {
-    const reply = await answer('POST', '/api/notes', none, { projectPath: project, op: 'rename' }, TICKET)
-    expect(reply?.status).toBe(400)
+  test('a malformed change is refused with a sentence', async () => {
+    expect((await write({ project, epic: EPIC, op: 'move', ref: 'gh#1', to: 'nowhere' }))?.status).toBe(400)
+    expect((await write({ project, epic: EPIC, op: 'seen', cards: [{ ref: 'gh#1' }] }))?.status).toBe(400)
   })
+})
 
-  test('the MCP door lists one read-only tool that takes project and epic', async () => {
+describe('the settings door', () => {
+  test('reads the defaults, saves a change, and says where they are kept', async () => {
+    const got = await answer('GET', SETTINGS_PATH, new URLSearchParams({ project }), null, null)
+    expect(got?.body).toMatchObject({ ok: true, values: { 'column.todo': true, doneDays: 14 }, file: '.kehikot/kanban/settings.json' })
+    const set = await answer('POST', SETTINGS_PATH, none, { project, key: 'doneDays', value: 3, by: 'person' }, TICKET)
+    expect(set?.body).toMatchObject({ ok: true, outcome: 'saved', values: { doneDays: 3 } })
+    const refused = await answer('POST', SETTINGS_PATH, none, { project, key: 'doneDays', value: 'soon', by: 'agent' }, null)
+    expect(refused?.body).toMatchObject({ outcome: 'refused' })
+    const elsewhere = await answer('POST', SETTINGS_PATH, none, { project: '/not/a/project', key: 'doneDays', value: 3, by: 'agent' }, null)
+    expect(elsewhere?.body).toMatchObject({ outcome: 'refused' })
+    expect(existsSync('/not/a/project')).toBe(false)
+    /* The page reads them with its moves. */
+    const board = (await answer('GET', '/api/board', new URLSearchParams({ project, epic: EPIC }), null, null))?.body as { settings: { doneDays: number } }
+    expect(board.settings.doneDays).toBe(3)
+    await answer('POST', SETTINGS_PATH, none, { project, key: 'doneDays', value: 14, by: 'person' }, TICKET)
+  })
+})
+
+describe('the MCP door', () => {
+  test('lists board, which reads, and move_card, which writes this board only', async () => {
     expect((await answer('GET', '/mcp', none, null, null))?.status).toBe(405)
     const tools = (await rpc('tools/list')).result.tools!
-    expect(tools.map((one) => one.name)).toEqual(['list_notes'])
-    for (const tool of tools) expect(tool.annotations?.readOnlyHint).toBe(true)
-    expect(Object.keys(tools[0]!.inputSchema.properties)).toEqual(['project', 'epic'])
+    expect(tools.map((one) => [one.name, one.annotations?.readOnlyHint])).toEqual([
+      ['board', true],
+      ['move_card', false],
+    ])
+    for (const one of tools) expect(Object.keys(one.inputSchema.properties).slice(0, 2)).toEqual(['project', 'epic'])
   })
 
-  test('list_notes answers for a project the host holds, and refuses one it does not', async () => {
-    const said = await rpc('tools/call', { name: 'list_notes', arguments: { project, epic: 'launch' } })
-    expect(said.result.isError).toBeUndefined()
-    expect(said.result.content?.[0]?.text).toContain('Ask about the deadline')
-    const refused = await rpc('tools/call', { name: 'list_notes', arguments: { project: '/not/a/project' } })
-    expect(refused.result.isError).toBe(true)
-    const unnamed = await rpc('tools/call', { name: 'list_notes', arguments: {} })
-    expect(unnamed.result.isError).toBe(true)
+  test('before any page drew the board, board says so, and move_card refuses', async () => {
+    const said = await tool('board', { project, epic: EPIC })
+    expect(said.error).toBe(false)
+    expect(said.text).toContain('No Kanban page has drawn the board of the epic launch')
+    expect((await tool('move_card', { project, epic: EPIC, ref: 'gh#1', column: 'done' })).error).toBe(true)
+  })
+
+  test('board says every column and card, the titles as quoted text', async () => {
+    await write({ project, epic: EPIC, op: 'seen', cards })
+    const said = await tool('board', { project, epic: EPIC })
+    expect(said.text).toContain('## To do (todo): 2')
+    expect(said.text).toContain('- gh#1 Issue "Sign-in page for the beta" — Open, nobody on it · labels: web, p1')
+    expect(said.text).toContain('## Done (done): 2, and 1 finished more than 14 days ago left off')
+  })
+
+  test('move_card moves a card on this board, marked as an agent’s, and back again', async () => {
+    await write({ project, epic: EPIC, op: 'seen', cards })
+    const moved = await tool('move_card', { project, epic: EPIC, ref: 'gh#1', column: 'In review', by: 'Claude Code' })
+    expect(moved.error).toBe(false)
+    expect(moved.text).toContain('marked as an agent’s move (Claude Code)')
+    expect(moved.text).toContain('nothing was written to GitHub or GitLab')
+    expect((await read()).moves.moved['gh#1']).toMatchObject({ to: 'review', by: { kind: 'agent', name: 'Claude Code' } })
+    expect((await tool('board', { project, epic: EPIC })).text).toContain('Moved here by an agent (Claude Code)')
+    const back = await tool('move_card', { project, epic: EPIC, ref: 'gh#1', column: 'todo' })
+    expect(back.text).toContain('where the tracker has it')
+    expect((await read()).moves.moved).toEqual({})
+  })
+
+  test('move_card refuses a card that is not on the board, a column that is not one, and a project the host does not hold', async () => {
+    await write({ project, epic: EPIC, op: 'seen', cards })
+    expect((await tool('move_card', { project, epic: EPIC, ref: 'gh#99', column: 'done' })).error).toBe(true)
+    expect((await tool('move_card', { project, epic: EPIC, ref: 'gh#1', column: 'later' })).error).toBe(true)
+    expect((await tool('board', { project: '/not/a/project', epic: EPIC })).error).toBe(true)
+    expect((await tool('board', {})).error).toBe(true)
   })
 
   test('each skill is served at its path, with the origin filled in and a text a host accepts', async () => {
-    /* Said once the server listens: the manifest's versions follow the origin really bound. */
     servingAt('http://127.0.0.1:9520')
     for (const skill of MANIFEST.declares.skills ?? []) {
       const reply = await answer('GET', skillPath(skill.name), none, null, null)
@@ -86,11 +151,5 @@ describe('the doors', () => {
       expect(text).toContain('http://127.0.0.1:9520')
       expect(text).toContain(`[skill ${skill.version}]`)
     }
-  })
-
-  test('the answer says each note as text, with its state and parts', () => {
-    const note: Note = { id: '1', text: 'Check <b>this</b>', epic: 'e', parts: ['p'], done: false, at: '2026-01-01T00:00:00Z' }
-    expect(saidNotes([note], 'e', [])).toBe('- [open] "Check <b>this</b>" (parts: p) — epic e')
-    expect(saidNotes([note], 'other', [])).toBe('No notes are kept for the epic other.')
   })
 })

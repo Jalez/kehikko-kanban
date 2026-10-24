@@ -1,82 +1,193 @@
-import { X } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react'
 
-import { pickedParts, type HeaderItem, type PressValue } from 'kehikot-module-protocol'
+import { TRACKER_REFRESH_WITHIN_MS, pickedParts, type PressValue } from 'kehikot-module-protocol'
+import type { PressAnswer } from 'kehikot-module-protocol/client'
 import { Cover, coverFor, useFocus, useServerStanding } from 'kehikot-module-protocol/client/react'
 
 import { HeaderMenus } from '@/components/header-menus'
-import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { headerItems, pressed, type Showing } from '@/header'
-import { inboxItems } from '@/inbox'
-import { api as realApi, type Api } from '@/wire/api'
-import { useKehikot, type Host } from '@/wire/use-kehikot'
+import { openCard, openerOf } from '@/lib/links'
+import { cn } from '@/lib/utils'
 
-import type { Edit, Note } from '../store.ts'
+import type { Card } from './board/cards.ts'
+import { headerItems, pressed } from './header.ts'
+import { BoardView, NARROW_PX, useWidth } from './view/board.tsx'
+import { useBoard } from './view/use-board.ts'
+import { api as realApi, type Api } from './wire/api.ts'
+import { missingSaid } from './wire/reading.ts'
+import { DEFAULT_VIEW, useKehikot, type Host, type View } from './wire/use-kehikot.ts'
 
 type Press = { item: string; value?: PressValue }
 
-/**
- * The page. It owns every bit of its state: the view the header switch is on,
- * and the notes as last read. The host draws the header from what is declared
- * here, and is told the whole list again whenever it changes.
- */
-export function App() {
-  const [showing, setShowing] = useState<Showing>('open')
-  /* One handler for a press from the host's menus and from this page's own copy of them. A sentence is "not taken, and why". */
-  const press = useCallback(({ item, value }: Press) => {
-    const view = pressed(item, value)
-    if (view !== 'open' && view !== 'all') return view
-    setShowing(view)
-  }, [])
-  const host = useKehikot({ onPress: press })
-  const items = useMemo(() => headerItems(showing), [showing])
-  /* Declared at mount and again whenever it changes; the client replays it on every greeting. */
-  const { header } = host
-  useEffect(() => header(items), [header, items])
-  return <Screen host={host} items={items} showing={showing} onPress={press} />
+/** Where the host's presses and refreshes reach the screen, which owns the state they change. */
+export interface Handlers {
+  press: MutableRefObject<((press: Press) => PressAnswer | Promise<PressAnswer>) | null>
+  refresh: MutableRefObject<(() => void) | null>
 }
 
+export const handlers = (): Handlers => ({ press: { current: null }, refresh: { current: null } })
+
+export function App() {
+  const bound = useRef<Handlers>(handlers()).current
+  const host = useKehikot({
+    onPress: (press) => (bound.press.current ? bound.press.current(press) : 'Kanban is not ready for that yet.'),
+    onRefresh: () => bound.refresh.current?.(),
+  })
+  return <Screen host={host} handlers={bound} />
+}
+
+const MOVES_SAID = 'Moves stay on this board, kept in this project: GitHub and GitLab are not changed.'
+const KEYS_SAID = 'Alt+arrows move the focused card.'
+
 /**
- * Everything drawn, from a plain `Host`, so a test draws it with a made-up
- * context (test/render.test.tsx).
+ * Everything drawn, from a plain `Host`, so a test draws it with a made-up context
+ * (test/render.test.tsx). It owns every bit of its state: the view, and the board as last read.
  */
 export function Screen({
   host,
   api = realApi,
-  items = headerItems('open'),
-  showing = 'open',
-  onPress = () => {},
+  handlers: bound = handlers(),
+  width: forced,
+  now,
 }: {
   host: Host
   api?: Api
-  items?: HeaderItem[]
-  showing?: Showing
-  onPress?: (press: Press) => void
+  handlers?: Handlers
+  /** The container's width, for a test; measured otherwise. */
+  width?: number
+  now?: () => number
 }) {
-  /* What this page's own server last did, learned by every `ask()`: it stopped, or restarted under this page. */
   const server = useServerStanding()
   const [again, setAgain] = useState(0)
   /* The one screen for every not-ready moment: waiting for a host, no host, no project, a stopped server. */
   const cover = coverFor({ ...host, server }, { project: true })
 
+  const [view, setView] = useState<View>(host.kept ?? DEFAULT_VIEW)
+  const restored = useRef(host.kept !== null)
+  useEffect(() => {
+    if (!restored.current && host.kept) {
+      restored.current = true
+      setView(host.kept)
+    }
+  }, [host.kept])
+  const { remember } = host
+  const viewNow = useRef(view)
+  viewNow.current = view
+  const change = useCallback(
+    (next: Partial<View>) => {
+      const now = { ...viewNow.current, ...next }
+      viewNow.current = now
+      setView(now)
+      remember(now)
+    },
+    [remember],
+  )
+
+  const board = useBoard(host, api, now)
+  const settings = board.kept?.settings
+  const doneColumn = settings?.columns.done ?? true
+
+  /* The header: declared whole on every change; the client replays it on every greeting. */
+  const items = useMemo(
+    () => headerItems({ density: view.density, showDone: view.showDone, doneColumn, moves: board.moves }),
+    [view.density, view.showDone, doneColumn, board.moves],
+  )
+  const { header } = host
+  useEffect(() => header(items), [header, items])
+
+  const { resetAll } = board
+  const onPress = useCallback(
+    (press: Press): PressAnswer | Promise<PressAnswer> => {
+      const asked = pressed(press.item, press.value)
+      if (typeof asked === 'string') return asked
+      if ('density' in asked) return void change({ density: asked.density })
+      if ('showDone' in asked) return void change({ showDone: asked.showDone })
+      return resetAll()
+    },
+    [change, resetAll],
+  )
+  bound.press.current = onPress
+
+  /* The host's refresh control reads the trackers again, for this epic — spending the person's rate limit, on their press only. */
+  const { refreshable, request, answers, epic, tracker } = host
+  const canRefresh = Boolean(epic) && answers?.includes('tracker.refresh') === true
+  useEffect(() => refreshable({ can: canRefresh, at: tracker.at, busy: tracker.refreshing }), [refreshable, canRefresh, tracker.at, tracker.refreshing])
+  bound.refresh.current = () => {
+    if (canRefresh) void request('tracker.refresh', { epic }, { within: TRACKER_REFRESH_WITHIN_MS }).catch(() => {})
+  }
+
+  const opener = openerOf(host)
+  const open = useCallback(
+    (card: Card) => {
+      setHeld(card.ref)
+      void openCard(card.url, card.title, opener)
+    },
+    [opener],
+  )
+
+  const [measured, measuredWidth] = useWidth()
+  const width = forced ?? measuredWidth
+  const narrow = width > 0 && width < NARROW_PX
+
+  /* THE rule for parts: a card is anchored to its refs, every spelling. */
+  const focus = useFocus({ parts: host.parts, epic: host.epic, projectPath: host.projectPath })
+  const placed = useMemo(() => board.board?.filter((one) => one.shown).flatMap((one) => one.cards) ?? [], [board.board])
+  const [held, setHeld] = useState<string | null>(null)
+  const { shown, empty } = focus.narrow(placed, (one) => one.card.refs.map((ref) => ({ ref })), { noun: 'card', keep: (one) => one.card.ref === held })
+  const shownRefs = useMemo(() => new Set(shown.map((one) => one.card.ref)), [shown])
+
+  const lines = [board.readError, board.said, board.reading ? missingSaid(board.reading.missing) : null, ...(board.reading?.failed ?? []), board.kept?.problem].filter(
+    (line): line is string => Boolean(line),
+  )
+
   return (
-    <div className="flex h-screen min-w-0 flex-col text-sm">
+    <div ref={measured} className="bg-background text-foreground flex h-screen min-w-0 flex-col text-sm">
       {/* Hosted, the host draws the header items in the container's own header. Alone, the page does. */}
       {host.where === 'unhosted' ? (
         <header className="flex min-h-9 shrink-0 items-center gap-2 border-b px-2">
-          <span className="text-xs font-medium">Example</span>
-          <HeaderMenus items={items} onPress={onPress} />
+          <span className="text-xs font-medium">Kanban</span>
+          <HeaderMenus items={items} onPress={(press) => void onPress(press)} />
         </header>
       ) : null}
-      <main className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-3">
+      <main className={cn('flex min-h-0 flex-1 flex-col gap-2', narrow ? 'p-2' : 'p-3')}>
         {cover ? (
-          <Cover state={cover} name="Example" onRetry={() => setAgain((n) => n + 1)} />
+          <Cover state={cover} name="Kanban" onRetry={() => setAgain((n) => n + 1)} key={again} />
+        ) : !host.epic ? (
+          <Empty>Open an epic, and its issues, pull requests and merge requests show here as a board.</Empty>
         ) : (
           <>
-            <Where host={host} />
-            <Notes key={`${host.projectPath}:${again}`} host={host} api={api} showing={showing} />
+            {lines.map((line) => (
+              <p key={line} className={cn('text-xs', line === board.readError || line === board.said ? 'text-destructive' : 'text-muted-foreground')} data-testid="said">
+                {line}
+              </p>
+            ))}
+            {!board.board ? (
+              board.readError ? null : <Empty>Reading the epic’s work…</Empty>
+            ) : !board.cards.length ? (
+              <Empty>This epic names no issue, pull request or merge request yet. Add them to its steps, and they show here.</Empty>
+            ) : empty ? (
+              <Empty>{empty}</Empty>
+            ) : (
+              <BoardView
+                board={board.board}
+                shown={shownRefs}
+                density={view.density}
+                showDone={view.showDone}
+                onShowDone={(showDone) => change({ showDone })}
+                narrow={narrow}
+                cramped={narrow && width < 340}
+                column={view.column}
+                onColumn={(column) => change({ column })}
+                onOpen={open}
+                onMove={board.move}
+                onReset={board.reset}
+                onHold={(card) => setHeld(card.ref)}
+                doneDays={settings?.doneDays ?? 14}
+                narrowed={pickedParts(host.parts).length > 0}
+              />
+            )}
+            <p className="text-muted-foreground shrink-0 truncate text-[11px]" title={`${MOVES_SAID} ${KEYS_SAID}`} data-testid="footnote">
+              {MOVES_SAID} {narrow ? null : KEYS_SAID}
+            </p>
           </>
         )}
       </main>
@@ -84,102 +195,6 @@ export function Screen({
   )
 }
 
-/** Where the host says the person is: project, epic and the parts picked out. */
-function Where({ host }: { host: Host }) {
-  return (
-    <p className="text-muted-foreground flex min-w-0 flex-wrap items-center gap-1 text-xs" data-testid="where">
-      <span className="truncate" data-testid="project">{host.project ?? 'No project'}</span>
-      <span aria-hidden>›</span>
-      <span className="truncate" data-testid="epic">{host.epic ?? 'no epic open'}</span>
-      {/* Said even when nothing is picked: "the whole epic" is an answer, and a blank would read as a host that did not say. */}
-      {host.epic ? (
-        <Badge variant="outline" data-testid="parts">
-          {host.picked.length ? host.picked.join(', ') : 'the whole epic'}
-        </Badge>
-      ) : null}
-    </p>
-  )
-}
-
-/** The notes of this project, narrowed to the epic and to the parts picked, with a line to add one. */
-function Notes({ host, api, showing }: { host: Host; api: Api; showing: Showing }) {
-  const projectPath = host.projectPath!
-  const [notes, setNotes] = useState<Note[] | null>(null)
-  const [said, setSaid] = useState<string | null>(null)
-  const [draft, setDraft] = useState('')
-  const focus = useFocus(host)
-
-  useEffect(() => {
-    let live = true
-    api
-      .read(projectPath)
-      .then((read) => live && setNotes(read))
-      .catch((error: unknown) => live && setSaid(error instanceof Error ? error.message : String(error)))
-    return () => {
-      live = false
-    }
-  }, [projectPath, api])
-
-  /* The Inbox gets every open note of this epic, whole, whenever the list changes. */
-  const { activity, epic } = host
-  useEffect(() => {
-    if (notes) activity(inboxItems(notes, epic))
-  }, [activity, notes, epic])
-
-  const edit = (one: Edit) =>
-    api
-      .edit(projectPath, one)
-      .then((next) => {
-        setNotes(next)
-        setSaid(null)
-        return true
-      })
-      .catch((error: unknown) => {
-        setSaid(error instanceof Error ? error.message : String(error))
-        return false
-      })
-
-  if (notes === null) return said ? <p className="text-destructive text-xs">{said}</p> : null
-
-  /* The epic's notes, then THE rule for parts: a note is anchored to the parts it was written under. */
-  const ofEpic = notes.filter((note) => note.epic === host.epic && (showing === 'all' || !note.done))
-  const { shown, empty } = focus.narrow(ofEpic, (note) => (note.parts.length ? note.parts.map((part) => ({ part })) : { whole: true }), { noun: 'note' })
-
-  return (
-    <section className="flex min-w-0 flex-col gap-2">
-      <form
-        className="flex gap-2"
-        onSubmit={(event) => {
-          event.preventDefault()
-          const parts = pickedParts(host.parts).map((part) => part.id)
-          void edit({ op: 'add', text: draft, epic: host.epic, parts }).then((done) => done && setDraft(''))
-        }}
-      >
-        <Input aria-label="A new note" placeholder="A note about this epic" value={draft} onChange={(event) => setDraft(event.target.value)} />
-        <Button type="submit" size="sm" disabled={!draft.trim()}>
-          Add
-        </Button>
-      </form>
-      {said ? <p className="text-destructive text-xs" data-testid="said">{said}</p> : null}
-      {empty ? <p className="text-muted-foreground text-xs">{empty}</p> : null}
-      {!shown.length && !empty ? <p className="text-muted-foreground text-xs">{showing === 'open' ? 'No open notes.' : 'No notes yet.'}</p> : null}
-      <ul className="flex flex-col gap-1">
-        {shown.map((note) => (
-          <li key={note.id} className="group flex min-w-0 items-center gap-2">
-            <input
-              type="checkbox"
-              aria-label={note.done ? `Reopen “${note.text}”` : `Finish “${note.text}”`}
-              checked={note.done}
-              onChange={(event) => void edit({ op: 'done', id: note.id, done: event.target.checked })}
-            />
-            {/* A note is the person's text: drawn as text, never as markup. */}
-            <span className={`min-w-0 flex-1 break-words ${note.done ? 'text-muted-foreground line-through' : ''}`}>{note.text}</span>
-            <Button variant="ghost" size="sm" className="size-6 p-0 opacity-60 group-hover:opacity-100" aria-label={`Remove “${note.text}”`} onClick={() => void edit({ op: 'remove', id: note.id })}>
-              <X className="size-3" />
-            </Button>
-          </li>
-        ))}
-      </ul>
-    </section>
-  )
+function Empty({ children }: { children: string }) {
+  return <p className="text-muted-foreground px-1 py-6 text-center text-xs">{children}</p>
 }

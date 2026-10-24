@@ -2,8 +2,13 @@
 # a directory, and `node_modules/` would let the link be committed.
 node_modules
 
-# There is no build; Vite serves the page. A stray dist is a second, stale answer.
+# The build (`bun run build`), stamped with the commit it is of; `run.sh` serves it only when the
+# stamp is HEAD. Never committed: a checked-in copy is a second answer to "what does this page say".
 dist
+
+# Written by `build.ts` for the length of a build and taken away after. Left behind by a killed
+# build, it would be what Vite answers at `/`, with no ticket in it.
+/index.html
 
 # What this module keeps while you try it on itself: never committed.
 .kehikot

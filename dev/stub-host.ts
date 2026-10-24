@@ -10,8 +10,9 @@
  * page lets the stub frame it and the MCP door asks the stub which folders are
  * projects, and with a throwaway registry, so Kehikot never hears of this copy) and serves one page that frames it the way Kehikot does: the
  * greeting with a project, an epic and three parts, the header drawn from what
- * the module declares (press a switch and see it come back), the Inbox items it
- * reports, and every message logged. Pick parts with the buttons.
+ * the module declares (press a switch and see it come back), `tracker.get`
+ * answered from the stand-in rows in `test/fixtures.ts` (nothing is read from a
+ * tracker), and every message logged. Pick parts with the buttons.
  *
  * Nothing here is shipped, and nothing in `src/` knows it exists. It is no
  * substitute for the real host: install the module there too (README, "Try it").
@@ -24,6 +25,7 @@ import { MESSAGE, PROTOCOL } from 'kehikot-module-protocol'
 import { originFor } from 'kehikot-module-protocol/serve'
 
 import { PREFERRED_PORT } from '../manifest.ts'
+import { EPIC, PART_NAMES, PART_REFS, ROWS } from '../test/fixtures.ts'
 
 /* Inside this module's ten-port slot, so it never lands on a neighbour. */
 const PORT = Number(process.env.STUB_PORT ?? PREFERRED_PORT + 9)
@@ -46,7 +48,6 @@ const page = `<!doctype html>
     <span id="where"></span>
     <span>parts:</span><span id="parts"></span>
     <span>header:</span><span id="menus">(nothing declared)</span>
-    <span>inbox:</span><span id="inbox">(nothing reported)</span>
   </header>
   <iframe id="frame" sandbox="allow-scripts allow-forms allow-same-origin" src="${MODULE}/app"></iframe>
   <aside id="log"></aside>
@@ -54,21 +55,19 @@ const page = `<!doctype html>
 (function () {
   var frame = document.getElementById('frame');
   var log = document.getElementById('log');
-  var parts = [
-    { id: 'design', heading: 'Design', refs: [], picked: false },
-    { id: 'build', heading: 'Build', refs: [], picked: false },
-    { id: 'ship', heading: 'Ship', refs: [], picked: false }
-  ];
+  var parts = ${JSON.stringify(Object.entries(PART_REFS).map(([id, refs]) => ({ id, heading: PART_NAMES[id], refs, picked: false })))};
+  var rows = ${JSON.stringify(ROWS)};
+  var at = new Date().toISOString();
   var kept = null;
   var presses = 0;
   function say(line) { log.textContent = line + '\\n' + log.textContent; }
   function context() {
-    return { epic: 'try-the-module', project: ${JSON.stringify(PROJECT.split('/').pop())}, projectPath: ${JSON.stringify(PROJECT)},
+    return { epic: ${JSON.stringify(EPIC)}, tracker: { at: at, refreshing: false }, project: ${JSON.stringify(PROJECT.split('/').pop())}, projectPath: ${JSON.stringify(PROJECT)},
       theme: 'light', parts: parts, selection: [] };
   }
   function send(message) { frame.contentWindow.postMessage(message, '${MODULE}'); }
   function tell() { send(Object.assign({ type: '${MESSAGE.CONTEXT}', protocol: ${PROTOCOL} }, context())); }
-  document.getElementById('where').textContent = ${JSON.stringify(PROJECT)} + ' › try-the-module';
+  document.getElementById('where').textContent = ${JSON.stringify(PROJECT)} + ' › ' + ${JSON.stringify(EPIC)};
   function drawParts() {
     var box = document.getElementById('parts');
     box.textContent = '';
@@ -99,7 +98,7 @@ const page = `<!doctype html>
   }
   frame.addEventListener('load', function () {
     send({ type: '${MESSAGE.HELLO}', protocol: ${PROTOCOL}, session: 'stub', context: context(), state: kept,
-      answers: ['state.set', 'activity.set'], header: true });
+      answers: ['state.set', 'tracker.get', 'address.open'], header: true });
   });
   addEventListener('message', function (event) {
     if (event.source !== frame.contentWindow) return;
@@ -110,12 +109,16 @@ const page = `<!doctype html>
     if (d.type !== '${MESSAGE.REQUEST}') return;
     var answer = function (data) { send({ type: '${MESSAGE.RESPONSE}', id: d.id, ok: true, data: data }); };
     if (d.method === 'state.set') { kept = d.params.state; return answer(null); }
-    if (d.method === 'activity.set') {
-      var items = d.params.items || [];
-      document.getElementById('inbox').textContent = items.length ? items.map(function (i) { return i.state + ': ' + i.label; }).join(' | ') : '(empty)';
-      return answer({ outcome: 'taken', taken: items.length, why: '' });
+    if (d.method === 'tracker.get') {
+      var p = d.params || {};
+      var asked = p.epic ? rows.map(function (r) { return r.ref; }) : (p.refs || []);
+      var found = rows.filter(function (r) { return asked.indexOf(r.ref) >= 0; });
+      var missing = asked.filter(function (ref) { return !found.some(function (r) { return r.ref === ref; }); })
+        .map(function (ref) { return { ref: ref, reason: 'not-found' }; });
+      return answer({ at: at, refreshing: false, sources: [], rows: found, missing: missing });
     }
-    send({ type: '${MESSAGE.RESPONSE}', id: d.id, ok: false, reason: 'unknown-method', error: 'the stub host answers state.set and activity.set' });
+    if (d.method === 'address.open') { say('would open ' + d.params.url); return answer({ outcome: 'opened', by: 'stub' }); }
+    send({ type: '${MESSAGE.RESPONSE}', id: d.id, ok: false, reason: 'unknown-method', error: 'the stub host answers state.set, tracker.get and address.open' });
   });
 })();
 </script></body></html>`

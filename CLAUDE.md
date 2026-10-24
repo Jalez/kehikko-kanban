@@ -1,4 +1,4 @@
-# Example — notes for agents
+# Kanban — notes for agents
 
 A Kehikot module: a program with its own server, page and MCP door that a
 Kehikot host frames in a container. The whole guide is
@@ -9,13 +9,16 @@ what follows is how THIS repository is built, and the rules a change here keeps.
 
 | | |
 |---|---|
-| `manifest.ts` | Who the module is. `DECLARED`; the version is package.json's. |
-| `doors.ts` | Every door but the page: `/healthz`, `/mcp`, `/api/*`, the skills. Pure `answer()`; tests call it directly. |
-| `store.ts` | The only code that touches project data. |
-| `skills.ts`, `plugin/skills/<name>/SKILL.md` | The Claude Code skills offered, served with the real origin filled in. |
-| `src/header.ts`, `src/inbox.ts` | What goes in the container's header and in the Inbox: pure functions of state. |
+| `manifest.ts` | Who the module is. `DECLARED`, `SETTING_FIELDS`; the version is package.json's. |
+| `doors.ts` | Every door but the page: `/healthz`, `/mcp` (`board`, `move_card`), `/api/board`, the settings door, the skills. Pure `answer()`; tests call it directly. |
+| `store.ts` | The only code that touches project data: `.kehikot/kanban/moves.json` and `settings.json`. |
+| `src/board/` | Pure and shared by the page and the server: `cards.ts` (a row → a card, and where the TRACKER puts it), `moves.ts` (moves laid over that, the order, placing), `seen.ts` (what the page drew, for the door). |
+| `src/wire/reading.ts` | What the page asks the host: `tracker.get` for the epic, its parts' refs, and the changes that close its issues. |
+| `src/view/` | The board (`board.tsx`), a card (`card.tsx`), faces, and `use-board.ts` (reading, polling, moves). |
+| `src/header.ts` | The header items: pure functions of state. |
 | `src/app.tsx` | The page. `Screen` renders from a plain `Host`, so tests need no host. |
-| `dev/stub-host.ts` | `bun run stub`: frames the module the way Kehikot does, for looking at it. |
+| `serve.ts`, `build.ts`, `run.sh` | Ready-built: `bun run build` stamps `dist/`, `run.sh` serves it when the stamp is HEAD, Vite otherwise. |
+| `dev/stub-host.ts` | `bun run stub`: frames the module with stand-in rows (`test/fixtures.ts`). |
 
 ## The rules
 
@@ -29,13 +32,22 @@ what follows is how THIS repository is built, and the rules a change here keeps.
 - **A module's strings are text.** Labels, notes and reasons are drawn as text,
   never as markup or links.
 - **Page-only writes.** Every write to `/api` carries the page's ticket
-  (`refuseTicket`); the MCP door only reads.
+  (`refuseTicket`). The MCP door reads, except `move_card`
+  (`readOnlyHint: false`), which only moves a card on this board.
 - **Agents never press what is a person's.** `agents: true` goes only on a
   harmless switch, toggle or jump; never on a run that writes, sends or
   deletes, never on a `confirm` run.
-- **The Inbox is one record.** Report what needs the person with
-  `host.activity(items)`, whole, every time it changes; keep no list of
-  notices of your own.
+- **No tracker but the host's.** Every row comes from `tracker.get`; this
+  module holds no credential and runs no `gh`/`glab`. Refreshing is the host's
+  control, on the person's press only (`trackers:refresh`).
+- **A move never leaves the board.** Moves are kept in `moves.json` and never
+  written to a tracker; every place a move is made or said says so. A move
+  stands only while the tracker still has the card where it was moved from.
+- **The door answers from what the page drew.** A module's server cannot read
+  the tracker reading; the page posts its cards (`op: 'seen'`, in memory only)
+  and `board`/`move_card` answer from that, un-narrowed.
+- **No Inbox items.** Nothing here needs the person; it declares no
+  `activity:report`.
 - **Ask only for what is called.** Each method needs its capability in
   `declares.uses`; nothing else goes there.
 - **Plain language.** Every sentence a person reads says what happened and
@@ -66,5 +78,5 @@ Kehikot installs and updates this module from its GitHub releases, not from `mai
    `git tag -a v<version> -m v<version> <merge-commit> && git push origin v<version>`.
 5. `.github/workflows/release.yml` checks that the tag matches `package.json`
    and is on `main`, checks the notes, typechecks and tests, then publishes the
-   release "Example <version>". If a check fails nothing is published: fix it on
+   release "Kanban <version>". If a check fails nothing is published: fix it on
    `main`, then tag again.

@@ -1,96 +1,255 @@
 import { afterEach, describe, expect, test } from 'bun:test'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 
-import type { EpicPart } from 'kehikot-module-protocol'
+import type { EpicPart, HeaderItem, TrackerRow } from 'kehikot-module-protocol'
 
-import { Screen } from '../src/app.tsx'
-import type { Api } from '../src/wire/api.ts'
+import { Screen, handlers } from '../src/app.tsx'
+import { moveCard, noMoves, resetCard, DEFAULT_SETTINGS, type EpicMoves } from '../src/board/moves.ts'
+import type { CardSeen } from '../src/board/seen.ts'
+import type { Api, MoveSent } from '../src/wire/api.ts'
 import type { Host } from '../src/wire/use-kehikot.ts'
-import type { Edit, Note } from '../store.ts'
+import { EPIC, NOW, PART_NAMES, PART_REFS, ROWS } from './fixtures.ts'
 
 afterEach(cleanup)
 
-const parts: EpicPart[] = [
-  { id: 'design', heading: 'Design', refs: [], picked: false },
-  { id: 'build', heading: 'Build', refs: [], picked: false },
-]
+const parts = (picked: string[] = []): EpicPart[] =>
+  Object.entries(PART_REFS).map(([id, refs]) => ({ id, heading: PART_NAMES[id]!, refs, picked: picked.includes(id) }))
+
+/** The host's reading, as `tracker.get` answers it: the epic names every stand-in ref but #7's closer. */
+function reading(rows: TrackerRow[] = ROWS) {
+  const answer = (found: TrackerRow[], missing: string[] = []) => ({
+    at: '2026-10-24T11:00:00.000Z',
+    refreshing: false,
+    sources: [],
+    rows: found,
+    missing: missing.map((ref) => ({ ref, reason: 'pending' })),
+  })
+  return async (method: string, params?: Record<string, unknown>) => {
+    if (method !== 'tracker.get') throw new Error(`not asked here: ${method}`)
+    if (params?.epic) return answer(rows)
+    const refs = (params?.refs as string[]) ?? []
+    return answer(rows.filter((row) => refs.includes(row.ref)), refs.filter((ref) => !rows.some((row) => row.ref === ref)))
+  }
+}
 
 function host(over: Partial<Host> = {}): Host {
   return {
     where: 'hosted',
-    project: 'Thesis',
-    projectPath: '/work/thesis',
-    epic: 'launch',
-    parts,
-    picked: [],
+    project: 'Demo',
+    projectPath: '/work/demo',
+    epic: EPIC,
+    parts: parts(),
     theme: 'light',
     header: () => {},
-    activity: () => {},
+    request: reading(),
+    answers: ['tracker.get', 'tracker.refresh', 'address.open', 'state.set'],
+    openAddress: async () => ({ outcome: 'opened' as const, by: 'kehikot.browser' }) as never,
+    refreshable: () => {},
+    remember: () => {},
+    kept: null,
+    tracker: { at: '2026-10-24T11:00:00.000Z', refreshing: false },
+    content: '',
     ...over,
   }
 }
 
-const note = (id: string, text: string, notePart: string[] = [], done = false): Note => ({ id, text, epic: 'launch', parts: notePart, done, at: '2026-10-01T10:00:00Z' })
-
-function fakeApi(notes: Note[], edits: Edit[] = []): Api {
-  return { read: () => Promise.resolve(notes), edit: (_, one) => (edits.push(one), Promise.resolve(notes)) }
+function fakeApi(start: EpicMoves = noMoves()) {
+  let moves = start
+  const sent: Array<{ op: string; move?: MoveSent; ref?: string }> = []
+  const seen: CardSeen[][] = []
+  const api: Api = {
+    read: async () => ({ moves, settings: DEFAULT_SETTINGS }),
+    move: async (_project, _epic, move) => {
+      sent.push({ op: 'move', move })
+      moves = moveCard(moves, { ...move, by: { kind: 'person' }, at: new Date(NOW).toISOString() }, move.refs, move.index)
+      return moves
+    },
+    reset: async (_project, _epic, ref) => {
+      sent.push({ op: 'reset', ref })
+      moves = resetCard(moves, ref)
+      return moves
+    },
+    resetAll: async () => {
+      sent.push({ op: 'reset-all' })
+      moves = noMoves()
+      return moves
+    },
+    seen: async (_project, _epic, cards) => void seen.push(cards),
+  }
+  return { api, sent, seen }
 }
 
-describe('the screen', () => {
-  test('says where the host put it: project, epic, and "the whole epic" when no part is picked', async () => {
-    render(<Screen host={host()} api={fakeApi([])} />)
-    expect(screen.getByTestId('project').textContent).toBe('Thesis')
-    expect(screen.getByTestId('epic').textContent).toBe('launch')
-    expect(screen.getByTestId('parts').textContent).toBe('the whole epic')
-    await waitFor(() => screen.getByText('No open notes.'))
+const column = (id: string) => document.querySelector<HTMLElement>(`[data-column="${id}"]`)!
+const refsIn = (id: string) => [...column(id).querySelectorAll<HTMLElement>('[data-card]')].map((one) => one.dataset.card)
+const card = (ref: string) => document.querySelector<HTMLElement>(`[data-card="${ref}"]`)!
+const now = () => NOW
+
+describe('the board', () => {
+  test('the epic’s work in four columns, placed from what the trackers say', async () => {
+    const { api } = fakeApi()
+    render(<Screen host={host()} api={api} now={now} />)
+    await waitFor(() => expect(refsIn('todo')).toEqual(['#12', 'gh#1']))
+    expect(refsIn('progress')).toEqual(['gh#2', 'gh#5'])
+    expect(refsIn('review')).toEqual(['!7', 'gh#4', 'gh#3'])
+    expect(refsIn('done')).toEqual(['gh#6', 'gh#8'])
+    expect(screen.getByText('1 finished more than 14 days ago is left off.')).toBeDefined()
+    expect(screen.getByTestId('footnote').textContent).toContain('GitHub and GitLab are not changed')
   })
 
-  test('narrows to the picked parts, and says so when the pick leaves nothing', async () => {
-    const picked = parts.map((one) => ({ ...one, picked: one.id === 'build' }))
-    render(<Screen host={host({ parts: picked, picked: ['Build'] })} api={fakeApi([note('a', 'In design', ['design']), note('b', 'Everywhere')])} />)
-    await waitFor(() => screen.getByText('Everywhere'))
-    expect(screen.queryByText('In design')).toBeNull()
-    cleanup()
-    render(<Screen host={host({ parts: picked, picked: ['Build'] })} api={fakeApi([note('a', 'In design', ['design'])])} />)
-    await waitFor(() => screen.getByText('No note is in the picked part.'))
+  test('a card says its number, type, title, labels and review in words, and its people by name', async () => {
+    const { api } = fakeApi()
+    render(<Screen host={host()} api={api} now={now} />)
+    await waitFor(() => card('gh#4'))
+    expect(card('gh#4').getAttribute('aria-label')).toBe('Pull request #4: CSV export. In In review. Review requested. Review requested')
+    expect(within(card('gh#4')).getByText('CSV export')).toBeDefined()
+    expect(within(card('gh#1')).getByText('p1')).toBeDefined()
+    expect(within(card('gh#4')).getByLabelText('Reviewers: Hubot (asked to review)')).toBeDefined()
+    expect(within(card('#12')).getByText('#12')).toBeDefined()
   })
 
-  test('a note is drawn as text, never as markup', async () => {
-    render(<Screen host={host()} api={fakeApi([note('a', '<b>bold</b>')])} />)
+  test('a title is drawn as text, never as markup', async () => {
+    const { api } = fakeApi()
+    const rows = [{ ...ROWS[0]!, title: '<b>bold</b>' }]
+    render(<Screen host={host({ request: reading(rows) })} api={api} now={now} />)
     await waitFor(() => screen.getByText('<b>bold</b>'))
   })
 
-  test('a new note is filed under the parts picked when it was written', async () => {
-    const edits: Edit[] = []
-    const picked = parts.map((one) => ({ ...one, picked: one.id === 'design' }))
-    render(<Screen host={host({ parts: picked, picked: ['Design'] })} api={fakeApi([], edits)} />)
-    await waitFor(() => screen.getByLabelText('A new note'))
-    fireEvent.change(screen.getByLabelText('A new note'), { target: { value: 'Pick a colour' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Add' }))
-    await waitFor(() => expect(edits).toEqual([{ op: 'add', text: 'Pick a colour', epic: 'launch', parts: ['design'] }]))
+  test('follows the parts picked, and says one sentence when they leave nothing', async () => {
+    const { api } = fakeApi()
+    render(<Screen host={host({ parts: parts(['docs']) })} api={api} now={now} />)
+    await waitFor(() => expect(refsIn('review')).toEqual(['!7']))
+    expect(refsIn('todo')).toEqual(['#12'])
+    expect(refsIn('progress')).toEqual([])
+    cleanup()
+    const empty = [...parts(), { id: 'later', heading: 'Later', refs: ['gh#99'], picked: true }]
+    render(<Screen host={host({ parts: empty })} api={api} now={now} />)
+    await waitFor(() => screen.getByText('No card is in the picked part.'))
   })
 
-  test('the open notes are reported to the Inbox, whole', async () => {
-    const reported: unknown[][] = []
-    render(<Screen host={host({ activity: (items) => reported.push(items) })} api={fakeApi([note('a', 'Open'), note('b', 'Done', [], true)])} />)
-    await waitFor(() => expect(reported.at(-1)?.length).toBe(1))
+  test('keeps the card the person is on in sight when the pick changes', async () => {
+    const { api } = fakeApi()
+    const { rerender } = render(<Screen host={host()} api={api} now={now} />)
+    await waitFor(() => card('gh#1'))
+    fireEvent.focus(card('gh#1'))
+    rerender(<Screen host={host({ parts: parts(['docs']) })} api={api} now={now} />)
+    await waitFor(() => expect(refsIn('todo')).toEqual(['#12', 'gh#1']))
+    expect(refsIn('progress')).toEqual([])
   })
 
-  test('each not-ready moment is the shared cover, with nothing to save into', () => {
+  test('tells its server every card it drew, before any part narrows them', async () => {
+    const { api, seen } = fakeApi()
+    render(<Screen host={host({ parts: parts(['docs']) })} api={api} now={now} />)
+    await waitFor(() => expect(seen.at(-1)?.length).toBe(ROWS.length))
+  })
+})
+
+describe('moving a card', () => {
+  test('with the keyboard: Alt+→ moves it, marked as moved by you, and Put back puts it back', async () => {
+    const { api, sent } = fakeApi()
+    render(<Screen host={host()} api={api} now={now} />)
+    await waitFor(() => card('gh#1'))
+    card('gh#1').focus()
+    fireEvent.keyDown(card('gh#1'), { key: 'ArrowRight', altKey: true })
+    await waitFor(() => expect(refsIn('progress')).toContain('gh#1'))
+    expect(sent[0]).toMatchObject({ op: 'move', move: { ref: 'gh#1', to: 'progress', tracked: 'todo' } })
+    expect(within(card('gh#1')).getByText('Moved here by you')).toBeDefined()
+    expect(screen.getByTestId('heard').textContent).toBe('#1 is in In progress. This board only: the tracker is not changed.')
+    await waitFor(() => expect(document.activeElement).toBe(card('gh#1')))
+    fireEvent.click(within(card('gh#1')).getByRole('button', { name: /Put #1 back in To do/ }))
+    await waitFor(() => expect(refsIn('todo')).toContain('gh#1'))
+    expect(sent.at(-1)).toEqual({ op: 'reset', ref: 'gh#1' })
+  })
+
+  test('with the keyboard: Alt+↓ moves it down its column, and the arrows alone move the focus', async () => {
+    const { api, sent } = fakeApi()
+    render(<Screen host={host()} api={api} now={now} />)
+    await waitFor(() => card('!7'))
+    card('!7').focus()
+    fireEvent.keyDown(card('!7'), { key: 'ArrowDown' })
+    await waitFor(() => expect(document.activeElement).toBe(card('gh#4')))
+    fireEvent.keyDown(card('gh#4'), { key: 'ArrowRight' })
+    await waitFor(() => expect(document.activeElement).toBe(card('gh#8')))
+    fireEvent.keyDown(card('gh#8'), { key: 'ArrowUp', altKey: true })
+    await waitFor(() => expect(refsIn('done')).toEqual(['gh#8', 'gh#6']))
+    expect(sent.at(-1)?.move).toMatchObject({ ref: 'gh#8', to: 'done', index: 0 })
+  })
+
+  test('a move the server refuses puts the board back and says why', async () => {
+    const { api } = fakeApi()
+    api.move = async () => {
+      throw new Error('The project folder is read-only.')
+    }
+    render(<Screen host={host()} api={api} now={now} />)
+    await waitFor(() => card('gh#1'))
+    fireEvent.keyDown(card('gh#1'), { key: 'ArrowRight', altKey: true })
+    await waitFor(() => screen.getByText('The project folder is read-only.'))
+    expect(refsIn('todo')).toContain('gh#1')
+  })
+
+  test('a move an agent made says so, from what the server holds', async () => {
+    const moves = moveCard(noMoves(), { ref: 'gh#1', to: 'done', tracked: 'todo', by: { kind: 'agent', name: 'Claude Code' }, at: new Date(NOW).toISOString() }, [], 0)
+    const { api } = fakeApi(moves)
+    render(<Screen host={host()} api={api} now={now} />)
+    await waitFor(() => expect(refsIn('done')).toContain('gh#1'))
+    expect(within(card('gh#1')).getByText('Moved here by an agent (Claude Code)')).toBeDefined()
+  })
+})
+
+describe('the page around the board', () => {
+  test('pressing a card hands its address to the canvas', async () => {
+    const opened: string[] = []
+    const { api } = fakeApi()
+    render(<Screen host={host({ openAddress: async (url) => (opened.push(url), { outcome: 'opened' }) as never })} api={api} now={now} />)
+    await waitFor(() => card('gh#1'))
+    fireEvent.click(card('gh#1'))
+    await waitFor(() => expect(opened).toEqual(['https://github.com/example-org/demo/issues/1']))
+    fireEvent.keyDown(card('gh#2'), { key: 'Enter' })
+    await waitFor(() => expect(opened).toHaveLength(2))
+  })
+
+  test('narrow, one column at a time with a switcher', async () => {
+    const { api } = fakeApi()
+    render(<Screen host={host()} api={api} now={now} width={320} />)
+    await waitFor(() => screen.getByRole('tablist', { name: 'Column' }))
+    expect(document.querySelectorAll('[data-column]')).toHaveLength(1)
+    expect(refsIn('todo')).toEqual(['#12', 'gh#1'])
+    fireEvent.click(screen.getByRole('tab', { name: /In review/ }))
+    await waitFor(() => expect(refsIn('review')).toEqual(['!7', 'gh#4', 'gh#3']))
+    expect(column('todo')).toBeNull()
+  })
+
+  test('the header: declared on every change, and its presses change the view', async () => {
+    const declared: HeaderItem[][] = []
+    const bound = handlers()
+    const { api } = fakeApi()
+    const remembered: unknown[] = []
+    render(<Screen host={host({ header: (items) => void declared.push(items as HeaderItem[]), remember: (view) => void remembered.push(view) })} api={api} now={now} handlers={bound} />)
+    await waitFor(() => card('gh#1'))
+    expect(declared.at(-1)?.map((item) => item.id)).toEqual(['density', 'done', 'reset'])
+    await act(async () => void (await bound.press.current?.({ item: 'density', value: 'compact' })))
+    expect(declared.at(-1)?.[0]).toMatchObject({ value: 'compact' })
+    expect(remembered.at(-1)).toMatchObject({ density: 'compact' })
+    await act(async () => void (await bound.press.current?.({ item: 'done', value: false })))
+    expect(refsIn('done')).toEqual([])
+    expect(screen.getByRole('button', { name: 'Show Done' })).toBeDefined()
+    expect(await bound.press.current?.({ item: 'nothing' })).toContain('nothing called')
+  })
+
+  test('each not-ready moment is the shared cover, and no epic says what to do', () => {
+    const { api } = fakeApi()
     const none = { projectPath: null, project: null, epic: null }
     for (const [where, state] of [['listening', 'waiting'], ['unhosted', 'unhosted'], ['hosted', 'no-project']] as const) {
-      const { container } = render(<Screen host={host({ ...none, where })} api={fakeApi([])} />)
+      const { container } = render(<Screen host={host({ ...none, where })} api={api} />)
       expect(container.querySelector('[data-cover]')?.getAttribute('data-cover')).toBe(state)
-      expect(screen.queryByRole('button', { name: 'Add' })).toBeNull()
       cleanup()
     }
+    render(<Screen host={host({ epic: null })} api={api} />)
+    expect(screen.getByText(/Open an epic/)).toBeDefined()
   })
 
-  test('alone, the page draws its own header; hosted, the host does', () => {
-    render(<Screen host={host({ where: 'unhosted' })} api={fakeApi([])} />)
-    expect(screen.getByRole('button', { name: /View/ })).toBeDefined()
-    cleanup()
-    render(<Screen host={host()} api={fakeApi([])} />)
-    expect(screen.queryByRole('button', { name: /View/ })).toBeNull()
+  test('an epic that names nothing says how to put work on it', async () => {
+    const { api } = fakeApi()
+    render(<Screen host={host({ request: reading([]) })} api={api} now={now} />)
+    await waitFor(() => screen.getByText(/names no issue, pull request or merge request yet/))
   })
 })
