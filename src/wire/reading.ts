@@ -13,7 +13,10 @@ import { LIMITS, trackerReadingResult, type EpicPart, type TrackerMissing, type 
  *    `parts` are the ones the page was told (`context.parts`); the server, which is told none, has
  *    the host's answer to 1.
  * 3. `{ refs }` for the changes that say they close an open issue on the board and are not on it, so
- *    the issue can follow its change into In progress or In review. These are not cards.
+ *    the issue can follow its change into In progress or In review, and for the changes that are
+ *    only part of it (`contributedBy`, protocol 2.26.0), which keep it In progress. These are not
+ *    cards. (A 2.26.0 host answers 1 with an epic issue's contributing changes beside it; those
+ *    are cards of their own, in their own column.)
  *
  * What the host has not read yet comes back `pending`, and the host starts a read; the page asks
  * again when `context.tracker.at` moves.
@@ -61,7 +64,11 @@ export async function readBoard(request: Request, epic: string, parts: readonly 
     ...new Set(
       rows
         .filter((row) => row.kind === 'issue' && row.state === 'open')
-        .flatMap((row) => row.links.filter((link) => link.relation === 'closed-by').map((link) => link.ref)),
+        .flatMap((row) => [
+          ...row.links.filter((link) => link.relation === 'closed-by').map((link) => link.ref),
+          /* And the changes that are only part of it (protocol 2.26.0): they keep it In progress. */
+          ...(row.contributedBy ?? []),
+        ]),
     ),
   ].filter((ref) => !held.has(ref))
   const third = await byRefs(request, closers)
