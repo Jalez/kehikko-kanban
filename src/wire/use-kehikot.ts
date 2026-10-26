@@ -1,6 +1,6 @@
 import { useMemo } from 'react'
 
-import { CONTENT_HOST, contentStamp, type TrackerSignal } from 'kehikot-module-protocol'
+import { CONTENT_HOST, CONTENT_STEPS, contentStamp, type TrackerSignal } from 'kehikot-module-protocol'
 import type { HostEvents } from 'kehikot-module-protocol/client'
 import { useHost, type Host as ProtocolHost, type KeptCodec } from 'kehikot-module-protocol/client/react'
 
@@ -54,11 +54,19 @@ export interface Host
   content: string
 }
 
+/**
+ * Whose changes move the board's content stamp: the host's own material, and an epic's steps. From
+ * protocol 2.21.0 a host announces a change by ANY module that keeps steps as `CONTENT_STEPS`, so
+ * the board follows whichever does. `kehikot.journeys` stays beside it for a host from before
+ * 2.21.0, which announces only the module's own id; it goes when those hosts are gone.
+ */
+export const CONTENT_SOURCES: readonly string[] = [CONTENT_HOST, CONTENT_STEPS, 'kehikot.journeys']
+
 export function useKehikot(events: HostEvents = {}): Host {
   const host = useHost<View>(ID, events, { kept: VIEW_CODEC })
   const at = host.context?.tracker?.at ?? null
   const refreshing = host.context?.tracker?.refreshing ?? false
-  const content = contentStamp(host.context?.content, { sources: [CONTENT_HOST, 'kehikot.journeys'], epic: host.epic })
+  const content = contentStamp(host.context?.content, { sources: [...CONTENT_SOURCES], epic: host.epic })
   const tracker = useMemo(() => ({ at, refreshing }), [at, refreshing])
   return useMemo(() => ({ ...host, tracker, content }), [host, tracker, content])
 }
