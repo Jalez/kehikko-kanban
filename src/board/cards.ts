@@ -129,12 +129,15 @@ const shortOf = (row: TrackerRow) => `${row.kind === 'change' && row.tracker ===
  * - **In review**: an open pull or merge request that is not a draft, or one whose review was asked
  *   for; an open issue whose change (one that says it closes the issue) is in review.
  * - **In progress**: a draft change nobody was asked to review; an open issue with a draft change,
- *   with somebody assigned, or with a branch linked to it (GitHub's Development branches, GitLab's
- *   related branches: somebody started).
+ *   with a change that is part of it (`contributedBy`: "Part of #12", open or merged — the issue
+ *   is not finished by one part, so never In review or Done from it), with somebody assigned, or
+ *   with a branch linked to it (GitHub's Development branches, GitLab's related branches: somebody
+ *   started).
  * - **To do**: open, and nobody on it.
  *
- * `linked` holds the rows of the changes that say they close an issue (`links` with `closed-by`), by
- * the ref the link spells; one the reading does not hold is not counted.
+ * `linked` holds the rows of the changes that say they close an issue (`links` with `closed-by`) and
+ * of those that are part of it (`contributedBy`), by the ref the reading spells; one the reading
+ * does not hold is not counted.
  */
 export function trackedOf(row: TrackerRow, linked: ReadonlyMap<string, TrackerRow> = new Map()): { column: ColumnId; why: string } {
   const change = row.kind === 'change' ? (row.tracker === 'gitlab' ? 'merge request' : 'pull request') : null
@@ -157,6 +160,12 @@ export function trackedOf(row: TrackerRow, linked: ReadonlyMap<string, TrackerRo
   if (reviewed) return { column: 'review', why: `${shortOf(reviewed.row)} is in review` }
   const drafted = changes[0]
   if (drafted) return { column: 'progress', why: `Draft ${shortOf(drafted.row)}` }
+  const parts = (row.contributedBy ?? [])
+    .map((ref) => linked.get(ref))
+    .filter((one): one is TrackerRow => one !== undefined && (one.state === 'open' || one.state === 'merged'))
+  const open = parts.find((one) => one.state === 'open')
+  if (open) return { column: 'progress', why: `Part of it in ${shortOf(open)}` }
+  if (parts[0]) return { column: 'progress', why: `Part of it merged in ${shortOf(parts[0])}` }
   const people = assigneesOf(row)
   if (people.length) return { column: 'progress', why: people.length === 1 ? `Assigned to ${people[0]!.name}` : `Assigned to ${people.length} people` }
   const branch = row.branches?.[0]

@@ -79,3 +79,21 @@ describe('reading the board from the host', () => {
     ).toBe('2 items are still being read, 1 is not on its tracker, 1 names no tracker this project reads.')
   })
 })
+
+describe('the changes that are part of an open issue', () => {
+  test('are asked for with the ones that close it (protocol 2.26.0)', async () => {
+    const asked: Array<Record<string, unknown>> = []
+    const issue = { ...row('gh#1'), contributedBy: ['gh#40'] }
+    const part = { ...row('gh#4'), ref: 'gh#40', number: 40, contributes: ['gh#1'], links: [] }
+    const request = async (_method: string, params: Record<string, unknown> = {}) => {
+      asked.push(params)
+      const rows = params.epic ? [issue] : [part].filter((one) => (params.refs as string[]).includes(one.ref))
+      return { at: null, refreshing: false, sources: [], rows, missing: [] }
+    }
+    const read = await readBoard(request, 'launch', [])
+    expect(asked).toEqual([{ epic: 'launch', parts: true }, { refs: ['gh#40'] }])
+    expect(read.rows.map((one) => one.ref)).toEqual(['gh#1'])
+    expect(read.linked.map((one) => one.ref)).toEqual(['gh#1', 'gh#40'])
+    expect(cardsOf(read.rows, read.linked)[0]!.tracked).toBe('progress')
+  })
+})

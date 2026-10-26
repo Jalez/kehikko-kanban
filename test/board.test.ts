@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'bun:test'
+import { trackerRowSchema, type TrackerRow } from 'kehikot-module-protocol'
 
 import { cardsOf, type Card } from '../src/board/cards.ts'
 import { neighbour } from '../src/board/columns.ts'
@@ -137,5 +138,39 @@ describe('the board, placed', () => {
     expect(board[0]?.cards).toHaveLength(2)
     expect(neighbour(['progress', 'review'], 'progress', 1)).toBe('review')
     expect(neighbour(['progress', 'review'], 'progress', -1)).toBeNull()
+  })
+})
+
+/**
+ * Jalez/kehikko#187: a merge request that says "Part of #3912" delivers part of the issue. It keeps
+ * the issue In progress, open or merged, and never moves it to In review or Done; "Closes #2638"
+ * still does what it did.
+ */
+describe('a change that is only part of an issue', () => {
+  const gl = (fields: Pick<TrackerRow, 'ref' | 'number' | 'kind' | 'state' | 'title'> & Partial<TrackerRow>): TrackerRow =>
+    trackerRowSchema.parse({ tracker: 'gitlab', host: 'gitlab.example.org', repo: 'group/app', readAt: when, url: 'u', ...fields })
+  const issue = gl({ ref: '#3912', number: 3912, kind: 'issue', state: 'open', title: 'Partly delivered', contributedBy: ['!3907'] })
+  const part = (state: 'open' | 'merged' | 'closed') => gl({ ref: '!3907', number: 3907, kind: 'change', state, title: 'One part', contributes: ['#3912'] })
+
+  test('open, it keeps the issue In progress, not In review', () => {
+    const [card] = cardsOf([issue], [issue, part('open')])
+    expect([card!.tracked, card!.why]).toEqual(['progress', 'Part of it in !3907'])
+  })
+
+  test('merged, the issue is still In progress, not Done', () => {
+    const [card] = cardsOf([issue], [issue, part('merged')])
+    expect([card!.tracked, card!.why]).toEqual(['progress', 'Part of it merged in !3907'])
+  })
+
+  test('closed without merging, it says nothing', () => {
+    const [card] = cardsOf([issue], [issue, part('closed')])
+    expect(card!.tracked).toBe('todo')
+  })
+
+  test('a change that closes the issue still leads it into In review', () => {
+    const closing = gl({ ref: '!3251', number: 3251, kind: 'change', state: 'open', title: 'The whole', links: [{ ref: '#3912', relation: 'closes' }] })
+    const both: TrackerRow = { ...issue, links: [{ ref: '!3251', relation: 'closed-by' }] }
+    const [card] = cardsOf([both], [both, part('open'), closing])
+    expect([card!.tracked, card!.why]).toEqual(['review', '!3251 is in review'])
   })
 })

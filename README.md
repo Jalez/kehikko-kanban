@@ -8,7 +8,7 @@ login and never calls a tracker itself.
 | Column | What the tracker says |
 |---|---|
 | To do | Open, and nobody is on it. |
-| In progress | Open and assigned; a draft pull or merge request; an issue whose change is a draft; an issue with a branch linked to it (GitHub's Development branches, GitLab's related branches). |
+| In progress | Open and assigned; a draft pull or merge request; an issue whose change is a draft; an issue with a change that is only part of it ("Part of #12"), open or merged; an issue with a branch linked to it (GitHub's Development branches, GitLab's related branches). |
 | In review | An open pull or merge request, or one whose review was asked for; an issue whose change is in review. |
 | Done | Closed or merged, within the last 14 days (a setting). Foldable. |
 
