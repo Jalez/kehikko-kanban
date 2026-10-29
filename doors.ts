@@ -21,7 +21,8 @@ import { AGENT_NAME_MAX, isRef, moveCard, place, refsIn, resetAll, resetCard, st
 import { cardsOf } from './src/board/cards.ts'
 import { boardSaid, columnNamed, seenOf, seenSchema, type CardSeen } from './src/board/seen.ts'
 import { missingSaid, readBoard } from './src/wire/reading.ts'
-import { MOVES_FILE, SETTINGS_FILE, boardSettings, editMoves, readMoves, readSettingValues, writeSettingValue } from './store.ts'
+import { makeStream } from './live.ts'
+import { MOVES_FILE, SETTINGS_FILE, boardSettings, editMoves, folderOf, readMoves, readSettingValues, writeSettingValue } from './store.ts'
 
 /**
  * Every door but the page, as one function: `answer` takes a request and returns a status and a
@@ -46,6 +47,9 @@ export function servingAt(origin: string): void {
 }
 
 /** Which paths are this module's doors rather than Vite's files. */
+/** The page's stream: told when the board changed, so it never asks on a clock (`live.ts`). */
+export const stream = makeStream(folderOf)
+
 export const ours = (path: string): boolean => path === '/healthz' || path === '/mcp' || path.startsWith('/api/') || isSkillPath(path)
 
 /** How the doors ask the host about a project and a place. The tests replace `fetch`. */
