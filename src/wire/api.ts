@@ -1,4 +1,4 @@
-import { answered, ask } from 'kehikot-module-protocol/client'
+import { answered, ask, subscribe } from 'kehikot-module-protocol/client'
 
 import type { ColumnId } from '../board/columns.ts'
 import type { BoardSettings, EpicMoves } from '../board/moves.ts'
@@ -29,6 +29,12 @@ export interface Api {
   move(project: string, epic: string, move: MoveSent): Promise<EpicMoves>
   reset(project: string, epic: string, ref: string): Promise<EpicMoves>
   resetAll(project: string, epic: string): Promise<EpicMoves>
+  /**
+   * Hear when the project's board changed: once as the stream opens (and again each time it
+   * reopens: after a drop, or when the page is shown again), then at every change. Never on a clock.
+   * Returns the function that stops it.
+   */
+  changes(project: string, onChange: () => void): () => void
   /** Tell the server what the page drew, for the MCP door on a host too old to answer the server itself. */
   seen(project: string, epic: string, cards: CardSeen[]): Promise<void>
 }
@@ -39,6 +45,7 @@ export const api: Api = {
   async read(project, epic) {
     return answered(await ask<Kept>('./api/board', { query: { project, epic } }))
   },
+  changes: (project, onChange) => subscribe('./api/board/events', () => onChange(), { query: { project }, probe: true }),
   move: (project, epic, move) => post({ project, epic, op: 'move', ...move }),
   reset: (project, epic, ref) => post({ project, epic, op: 'reset', ref }),
   resetAll: (project, epic) => post({ project, epic, op: 'reset-all' }),

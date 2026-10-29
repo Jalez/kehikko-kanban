@@ -5,7 +5,7 @@ import react from '@vitejs/plugin-react'
 import { doors, originFor, serves } from 'kehikot-module-protocol/serve'
 import { defineConfig, type Plugin } from 'vite'
 
-import { BUILD, MANIFEST, TICKET, answer, ours, servingAt } from './doors.ts'
+import { BUILD, MANIFEST, TICKET, answer, ours, servingAt, stream } from './doors.ts'
 import { ID, PREFERRED_PORT } from './manifest.ts'
 
 /** Once listening, say the port really bound (`serves()` may have moved it): the skills name that origin. */
@@ -45,6 +45,7 @@ export default defineConfig({
     doors({
       manifest: MANIFEST,
       answer,
+      stream,
       build: BUILD,
       page: { title: 'Kanban', ticket: TICKET },
       ours,

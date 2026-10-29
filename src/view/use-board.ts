@@ -14,16 +14,14 @@ import type { Host } from '../wire/use-kehikot.ts'
  *
  * - the host's tracker reading (`wire/reading.ts`), asked again when the reading moves, when the
  *   epic's material changes, and when the parts' refs change;
- * - this module's own moves and settings, from its server, asked again every couple of seconds while
- *   the page is visible — an agent's `move_card` and a change in the host's settings form arrive that
- *   way;
+ * - this module's own moves and settings, from its server, read again when its stream says they
+ *   changed (`api.changes`) — an agent's `move_card` and a change in the host's settings form arrive
+ *   that way, and the page never asks on a clock;
  * - what the page drew, told to its server for the MCP door when the host is too old to answer the
  *   server itself (protocol before 2.19.0).
  *
  * A move is drawn at once and sent after; a refusal puts the board back and says why.
  */
-
-export const POLL_MS = 2000
 
 const message = (error: unknown) => (error instanceof Error ? error.message : String(error))
 
@@ -89,13 +87,11 @@ export function useBoard(host: Pick<Host, 'projectPath' | 'epic' | 'parts' | 're
           setKept(next)
         })
         .catch((error: unknown) => live && setSaid(message(error)))
-    void tick()
-    const every = setInterval(() => {
-      if (globalThis.document?.visibilityState !== 'hidden') void tick()
-    }, POLL_MS)
+    /* The stream says so once as it opens, so this is also the first read. */
+    const stop = api.changes(projectPath, () => void tick())
     return () => {
       live = false
-      clearInterval(every)
+      stop()
     }
   }, [api, projectPath, epic])
 

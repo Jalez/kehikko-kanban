@@ -3,6 +3,7 @@ import { isAbsolute } from 'node:path'
 
 import { EPIC_SLUG, KEHIKOT_DIR, kehikotDir, moduleDir, moduleFile, within } from 'kehikot-module-protocol'
 
+import { changed } from './live.ts'
 import { ID } from './manifest.ts'
 import { COLUMN_IDS } from './src/board/columns.ts'
 import { DEFAULT_SETTINGS, epicMovesOf, isEmpty, noMoves, type BoardSettings, type EpicMoves } from './src/board/moves.ts'
@@ -140,7 +141,16 @@ function writeJson(projectPath: string | null | undefined, name: string, value: 
   const temporary = `${file.value}.${process.pid}.tmp`
   writeFileSync(temporary, `${JSON.stringify(value, null, 2)}\n`)
   renameSync(temporary, file.value)
+  /* The page is told over its stream, not left to ask. */
+  changed(projectPath)
   return null
+}
+
+/** This module's folder in `projectPath`, or null when there is none to read. For the stream's watcher. */
+export function folderOf(projectPath: string | null | undefined): string | null {
+  const root = projectRoot(projectPath)
+  if (!root.ok) return null
+  return moduleDir(root.value, ID) ?? null
 }
 
 /** A data file's path, checked to resolve inside the project. `make` creates the folder first. */

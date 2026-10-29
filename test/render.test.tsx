@@ -57,8 +57,16 @@ function fakeApi(start: EpicMoves = noMoves()) {
   let moves = start
   const sent: Array<{ op: string; move?: MoveSent; ref?: string }> = []
   const seen: CardSeen[][] = []
+  const changes: Array<() => void> = []
+  const reads = { count: 0 }
   const api: Api = {
-    read: async () => ({ moves, settings: DEFAULT_SETTINGS }),
+    read: async () => (reads.count++, { moves, settings: DEFAULT_SETTINGS }),
+    /* As the stream does: once as it opens, then at each change the test sends. */
+    changes: (_project, onChange) => {
+      changes.push(onChange)
+      onChange()
+      return () => void changes.splice(changes.indexOf(onChange), 1)
+    },
     move: async (_project, _epic, move) => {
       sent.push({ op: 'move', move })
       moves = moveCard(moves, { ...move, by: { kind: 'person' }, at: new Date(NOW).toISOString() }, move.refs, move.index)
@@ -76,7 +84,7 @@ function fakeApi(start: EpicMoves = noMoves()) {
     },
     seen: async (_project, _epic, cards) => void seen.push(cards),
   }
-  return { api, sent, seen }
+  return { api, sent, seen, changes, reads, set: (next: EpicMoves) => void (moves = next) }
 }
 
 const column = (id: string) => document.querySelector<HTMLElement>(`[data-column="${id}"]`)!
@@ -251,5 +259,32 @@ describe('the page around the board', () => {
     const { api } = fakeApi()
     render(<Screen host={host({ request: reading([]) })} api={api} now={now} />)
     await waitFor(() => screen.getByText(/names no issue, pull request or merge request yet/))
+  })
+})
+
+describe('the board is told, never asks on a clock', () => {
+  test('an hour open reads the moves once, sets no timer, and reads again only when the stream says so', async () => {
+    const realInterval = globalThis.setInterval
+    let intervals = 0
+    globalThis.setInterval = ((...args: Parameters<typeof setInterval>) => (intervals++, realInterval(...args))) as typeof setInterval
+    try {
+      const fake = fakeApi()
+      /* Counted before `waitFor`, which keeps an interval of its own. */
+      render(<Screen host={host()} api={fake.api} now={now} />)
+      await act(async () => {})
+      expect(intervals).toBe(0)
+      await waitFor(() => expect(refsIn('todo').length).toBeGreaterThan(0))
+      expect(fake.reads.count).toBe(1)
+      /* An agent's move_card, published by the server. */
+      const ref = refsIn('todo')[0]!
+      fake.set(moveCard(noMoves(), { ref, to: 'done', tracked: 'todo', by: { kind: 'agent', name: 'a' }, at: new Date(NOW).toISOString() }, [], 0))
+      await act(async () => fake.changes.forEach((change) => change()))
+      await waitFor(() => expect(refsIn('done')).toContain(ref))
+      expect(fake.reads.count).toBe(2)
+      cleanup()
+      expect(fake.changes.length).toBe(0)
+    } finally {
+      globalThis.setInterval = realInterval
+    }
   })
 })

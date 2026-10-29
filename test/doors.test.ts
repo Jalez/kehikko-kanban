@@ -6,7 +6,10 @@ import { join } from 'node:path'
 import { SERVER_ASK_PATH, SERVER_PASS_PATH, SETTINGS_PATH, serverAskSchema, skillPath, skillTextIssue, trackerRowSchema, type TrackerRow } from 'kehikot-module-protocol'
 import { serverPassReply } from 'kehikot-module-protocol/serve'
 
-import { ASK, CLOCK, MANIFEST, TICKET, answer, forgetSeen, servingAt } from '../doors.ts'
+import { ASK, CLOCK, MANIFEST, TICKET, answer, forgetSeen, servingAt, stream } from '../doors.ts'
+import { EVENTS_PATH, NEWS, stopWatching, topicOf } from '../live.ts'
+import { watching } from 'kehikot-module-protocol/serve'
+import { writeFileSync } from 'node:fs'
 import { ID } from '../manifest.ts'
 import { cardsOf } from '../src/board/cards.ts'
 import { seenOf } from '../src/board/seen.ts'
@@ -198,5 +201,36 @@ describe('the MCP door', () => {
       expect(text).toContain('http://127.0.0.1:9520')
       expect(text).toContain(`[skill ${skill.version}]`)
     }
+  })
+})
+
+describe('the page\'s stream: told when the board changed', () => {
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 150))
+
+  test('opens on a project with the news once, then news at every write: the page, an agent, a hand edit', async () => {
+    const heard: unknown[] = []
+    const live = stream('GET', EVENTS_PATH, new URLSearchParams({ project }), (event) => heard.push(event), null)
+    expect(live && 'close' in live).toBe(true)
+    expect(heard).toEqual([NEWS])
+    expect(watching(topicOf(project))).toBe(1)
+
+    const move = await tool('move_card', { project, epic: EPIC, ref: 'gh#1', column: 'In review', by: 'Claude Code' })
+    expect(move.error).toBe(false)
+    await settle()
+    expect(heard).toEqual([NEWS, NEWS])
+
+    const before = heard.length
+    writeFileSync(join(project, '.kehikot', 'kanban', 'moves.json'), JSON.stringify({ version: 1, epics: {} }))
+    await settle()
+    expect(heard.length).toBeGreaterThan(before)
+
+    if (live && 'close' in live) live.close()
+    expect(watching(topicOf(project))).toBe(0)
+    stopWatching()
+  })
+
+  test('another path, or no project, is not the stream', () => {
+    expect(stream('GET', '/api/board', new URLSearchParams({ project }), () => {}, null)).toBeNull()
+    expect(stream('GET', EVENTS_PATH, none, () => {}, null)).toBeNull()
   })
 })
