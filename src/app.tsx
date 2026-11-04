@@ -9,6 +9,7 @@ import { openCard, openerOf } from '@/lib/links'
 import { cn } from '@/lib/utils'
 
 import type { Card } from './board/cards.ts'
+import { MOVES_SAID, footerItems } from './footer.ts'
 import { headerItems, pressed } from './header.ts'
 import { BoardView, NARROW_PX, useWidth } from './view/board.tsx'
 import { useBoard } from './view/use-board.ts'
@@ -35,7 +36,6 @@ export function App() {
   return <Screen host={host} handlers={bound} />
 }
 
-const MOVES_SAID = 'Moves stay on this board, kept in this project: GitHub and GitLab are not changed.'
 const KEYS_SAID = 'Alt+arrows move the focused card.'
 
 /**
@@ -87,9 +87,10 @@ export function Screen({
   const doneColumn = settings?.columns.done ?? true
 
   /* The header: declared whole on every change; the client replays it on every greeting. */
+  const footed = host.where === 'hosted' && host.drawsFooter === true
   const items = useMemo(
-    () => headerItems({ density: view.density, showDone: view.showDone, doneColumn, moves: board.moves }),
-    [view.density, view.showDone, doneColumn, board.moves],
+    () => headerItems({ density: view.density, showDone: view.showDone, doneColumn, moves: board.moves, footed }),
+    [view.density, view.showDone, doneColumn, board.moves, footed],
   )
   const { header } = host
   useEffect(() => header(items), [header, items])
@@ -139,6 +140,31 @@ export function Screen({
     (line): line is string => Boolean(line),
   )
 
+  /*
+   * The footer the host draws, when it draws one (2.38.0): the cards in each column, the moves with
+   * Put all cards back beside them, a read in flight, and the first note. The page then draws no
+   * notes above the board and no line under it. An older host draws no footer, and the page keeps both.
+   */
+  const footerSaid = footed
+    ? JSON.stringify(
+        cover || !host.epic
+          ? []
+          : footerItems({
+              columns: (board.board ?? [])
+                .filter((one) => one.shown && (one.id !== 'done' || view.showDone))
+                .map((one) => ({ id: one.id, name: one.name, count: one.cards.filter((placed) => shownRefs.has(placed.card.ref)).length })),
+              moves: board.moves,
+              refreshing: host.tracker.refreshing,
+              lines,
+              trouble: Boolean(board.readError || board.said),
+            }),
+      )
+    : null
+  const { footer } = host
+  useEffect(() => {
+    if (footerSaid) footer?.(JSON.parse(footerSaid))
+  }, [footer, footerSaid])
+
   return (
     <div ref={measured} className="bg-background text-foreground flex h-screen min-w-0 flex-col text-sm">
       {/* Hosted, the host draws the header items in the container's own header. Alone, the page does. */}
@@ -155,7 +181,7 @@ export function Screen({
           <Empty>Open an epic, and its issues, pull requests and merge requests show here as a board.</Empty>
         ) : (
           <>
-            {lines.map((line) => (
+            {(footed ? [] : lines).map((line) => (
               <p key={line} className={cn('text-xs', line === board.readError || line === board.said ? 'text-destructive' : 'text-muted-foreground')} data-testid="said">
                 {line}
               </p>
@@ -185,9 +211,11 @@ export function Screen({
                 narrowed={pickedParts(host.parts).length > 0}
               />
             )}
-            <p className="text-muted-foreground shrink-0 truncate text-[11px]" title={`${MOVES_SAID} ${KEYS_SAID}`} data-testid="footnote">
-              {MOVES_SAID} {narrow ? null : KEYS_SAID}
-            </p>
+            {footed ? null : (
+              <p className="text-muted-foreground shrink-0 truncate text-[11px]" title={`${MOVES_SAID} ${KEYS_SAID}`} data-testid="footnote">
+                {MOVES_SAID} {narrow ? null : KEYS_SAID}
+              </p>
+            )}
           </>
         )}
       </main>
