@@ -46,7 +46,7 @@ export const VIEW_CODEC: KeptCodec<View> = {
 export interface Host
   extends Pick<
     ProtocolHost<View>,
-    'where' | 'project' | 'projectPath' | 'epic' | 'parts' | 'theme' | 'header' | 'request' | 'answers' | 'openAddress' | 'refreshable' | 'remember' | 'kept'
+    'where' | 'project' | 'projectPath' | 'epic' | 'parts' | 'theme' | 'header' | 'request' | 'answers' | 'openAddress' | 'refreshable' | 'remember' | 'kept' | 'read'
   >,
     Partial<Pick<ProtocolHost<View>, 'footer' | 'drawsFooter'>> {
   /** When the host's tracker reading last changed, and whether a read is in flight. */

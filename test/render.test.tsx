@@ -1,16 +1,47 @@
 import { afterEach, describe, expect, test } from 'bun:test'
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { useRef, useState, type ComponentProps } from 'react'
 
 import type { EpicPart, HeaderItem, TrackerRow } from 'kehikot-module-protocol'
 
-import { Screen, handlers } from '../src/app.tsx'
+import { Screen as Page, handlers } from '../src/app.tsx'
 import { moveCard, noMoves, resetCard, DEFAULT_SETTINGS, type EpicMoves } from '../src/board/moves.ts'
 import type { CardSeen } from '../src/board/seen.ts'
 import type { Api, MoveSent } from '../src/wire/api.ts'
-import type { Host } from '../src/wire/use-kehikot.ts'
+import type { Host, View } from '../src/wire/use-kehikot.ts'
 import { EPIC, NOW, PART_NAMES, PART_REFS, ROWS } from './fixtures.ts'
 
 afterEach(cleanup)
+
+/**
+ * The screen, with a host that keeps what it is told the way the protocol's `useHost` does:
+ * `remember` updates `kept` for the next render (and still reaches the test's own `remember`), and
+ * `read` gives the newest. A host handed in with a different `kept` — another kehikko — replaces it.
+ */
+function Screen(props: ComponentProps<typeof Page>) {
+  const given = props.host.kept ?? null
+  const [kept, setKept] = useState<View | null>(given)
+  const newest = useRef<View | null>(given)
+  const seen = useRef<View | null>(given)
+  let shown = kept
+  if (seen.current !== given) {
+    seen.current = given
+    newest.current = given
+    shown = given
+    setKept(given)
+  }
+  const host: Host = {
+    ...props.host,
+    kept: shown,
+    read: () => ({ kept: newest.current }) as ReturnType<Host['read']>,
+    remember: (next: View, after?: number) => {
+      newest.current = next
+      setKept(next)
+      props.host.remember(next, after)
+    },
+  }
+  return <Page {...props} host={host} />
+}
 
 const parts = (picked: string[] = []): EpicPart[] =>
   Object.entries(PART_REFS).map(([id, refs]) => ({ id, heading: PART_NAMES[id]!, refs, picked: picked.includes(id) }))
@@ -47,6 +78,7 @@ function host(over: Partial<Host> = {}): Host {
     refreshable: () => {},
     remember: () => {},
     kept: null,
+    read: () => ({ kept: null }) as ReturnType<Host['read']>,
     tracker: { at: '2026-10-24T11:00:00.000Z', refreshing: false },
     content: '',
     ...over,
@@ -241,6 +273,25 @@ describe('the page around the board', () => {
     expect(refsIn('done')).toEqual([])
     expect(screen.getByRole('button', { name: 'Show Done' })).toBeDefined()
     expect(await bound.press.current?.({ item: 'nothing' })).toContain('nothing called')
+  })
+
+  test('the view is restored from what this kehikko kept, a press keeps the rest of it, and another kehikko brings its own', async () => {
+    const declared: HeaderItem[][] = []
+    const bound = handlers()
+    const { api } = fakeApi()
+    const remembered: unknown[] = []
+    const keeping = (kept: View | null) =>
+      host({ kept, header: (items) => void declared.push(items as HeaderItem[]), remember: (view) => void remembered.push(view) })
+    const { rerender } = render(<Screen host={keeping({ density: 'compact', showDone: true, column: 'review' })} api={api} now={now} handlers={bound} />)
+    await waitFor(() => card('gh#1'))
+    expect(declared.at(-1)?.[0]).toMatchObject({ id: 'density', value: 'compact' })
+    await act(async () => void (await bound.press.current?.({ item: 'done', value: false })))
+    expect(remembered.at(-1)).toEqual({ density: 'compact', showDone: false, column: 'review' })
+    expect(refsIn('done')).toEqual([])
+
+    rerender(<Screen host={keeping(null)} api={api} now={now} handlers={bound} />)
+    await waitFor(() => expect(declared.at(-1)?.[0]).toMatchObject({ id: 'density', value: 'comfortable' }))
+    expect(refsIn('done').length).toBeGreaterThan(0)
   })
 
   test('each not-ready moment is the shared cover, and no epic says what to do', () => {
