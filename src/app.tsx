@@ -61,25 +61,16 @@ export function Screen({
   /* The one screen for every not-ready moment: waiting for a host, no host, no project, a stopped server. */
   const cover = coverFor({ ...host, server }, { project: true })
 
-  const [view, setView] = useState<View>(host.kept ?? DEFAULT_VIEW)
-  const restored = useRef(host.kept !== null)
-  useEffect(() => {
-    if (!restored.current && host.kept) {
-      restored.current = true
-      setView(host.kept)
-    }
-  }, [host.kept])
-  const { remember } = host
-  const viewNow = useRef(view)
-  viewNow.current = view
+  /*
+   * The view is what the host keeps for this container — this module on this kehikko — read on
+   * every render and never copied into state: the same page serves every kehikko, and moving to
+   * another one brings that one's view (or the defaults, when it kept none).
+   */
+  const view: View = host.kept ?? DEFAULT_VIEW
+  const { remember, read } = host
   const change = useCallback(
-    (next: Partial<View>) => {
-      const now = { ...viewNow.current, ...next }
-      viewNow.current = now
-      setView(now)
-      remember(now)
-    },
-    [remember],
+    (next: Partial<View>) => remember({ ...(read().kept ?? DEFAULT_VIEW), ...next }),
+    [remember, read],
   )
 
   const board = useBoard(host, api, now)
