@@ -288,3 +288,35 @@ describe('the board is told, never asks on a clock', () => {
     }
   })
 })
+
+describe('the footer', () => {
+  test('a host that draws it gets the cards per column and the moves with Put all cards back; the header then has no reset', async () => {
+    const footers: { id: string; kind: string; text?: string }[][] = []
+    const headers: { id: string }[][] = []
+    const { api } = fakeApi()
+    render(
+      <Screen
+        host={host({ drawsFooter: true, footer: (items) => void footers.push(items as never), header: (items) => void headers.push(items as never) })}
+        api={api}
+        width={900}
+        now={() => NOW}
+      />,
+    )
+    await waitFor(() => expect(footers.at(-1)?.find((i) => i.id === 'columns')).toBeDefined())
+    expect(footers.at(-1)?.find((i) => i.id === 'columns')?.text).toContain('To do')
+    expect(footers.at(-1)?.find((i) => i.id === 'moves')).toMatchObject({ text: 'None moved' })
+    expect(footers.at(-1)?.find((i) => i.id === 'reset')).toMatchObject({ kind: 'run' })
+    expect(headers.at(-1)?.some((i) => i.id === 'reset')).toBe(false)
+    expect(screen.queryByTestId('footnote')).toBeNull()
+  })
+
+  test('a host that does not draw it gets none, and the header keeps the reset', async () => {
+    const footers: unknown[] = []
+    const headers: { id: string }[][] = []
+    const { api } = fakeApi()
+    render(<Screen host={host({ drawsFooter: false, footer: (items) => void footers.push(items), header: (items) => void headers.push(items as never) })} api={api} width={900} now={() => NOW} />)
+    await waitFor(() => expect(screen.getByTestId('footnote')).toBeDefined())
+    expect(footers).toHaveLength(0)
+    expect(headers.at(-1)?.some((i) => i.id === 'reset')).toBe(true)
+  })
+})

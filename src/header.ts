@@ -10,6 +10,9 @@ import { headerItemsSchema, type HeaderItem } from 'kehikot-module-protocol'
  * - **Put all cards back** (Run): takes every move of this board off. It writes, so it is the
  *   person's alone, and it asks for the host's second press (`confirm`).
  *
+ * With a host that draws the footer (`footed`), Put all cards back is not here: it acts on the count
+ * of moves, and sits beside it in the footer (`footer.ts`). Never in both rows.
+ *
  * Labels are a few words: under 300 pixels the menus become icons, under 220 one "⋯".
  */
 export type Density = 'compact' | 'comfortable'
@@ -25,6 +28,8 @@ export interface HeaderState {
   doneColumn: boolean
   /** How many moves stand on this board. */
   moves: number
+  /** The host draws the footer, which has Put all cards back beside the count of moves. */
+  footed?: boolean
 }
 
 export function headerItems(state: HeaderState): HeaderItem[] {
@@ -41,14 +46,18 @@ export function headerItems(state: HeaderState): HeaderItem[] {
       value: state.density,
     },
     ...(state.doneColumn ? [{ kind: 'toggle', id: 'done', label: 'Show Done', agents: true, checked: state.showDone }] : []),
-    {
-      kind: 'run',
-      id: 'reset',
-      label: 'Put all cards back',
-      icon: 'undo',
-      confirm: true,
-      disabled: state.moves ? null : 'No card on this board was moved: each is where the tracker has it.',
-    },
+    ...(state.footed
+      ? []
+      : [
+          {
+            kind: 'run',
+            id: 'reset',
+            label: 'Put all cards back',
+            icon: 'undo',
+            confirm: true,
+            disabled: state.moves ? null : 'No card on this board was moved: each is where the tracker has it.',
+          },
+        ]),
   ])
 }
 
