@@ -48,7 +48,7 @@ export interface Host
     ProtocolHost<View>,
     'where' | 'project' | 'projectPath' | 'epic' | 'parts' | 'theme' | 'header' | 'request' | 'answers' | 'openAddress' | 'refreshable' | 'remember' | 'kept' | 'read'
   >,
-    Partial<Pick<ProtocolHost<View>, 'footer' | 'drawsFooter'>> {
+    Partial<Pick<ProtocolHost<View>, 'footer' | 'drawsFooter' | 'ready'>> {
   /** When the host's tracker reading last changed, and whether a read is in flight. */
   tracker: TrackerSignal
   /** Moves when the epic's own material changes: a ref added to a step. */
