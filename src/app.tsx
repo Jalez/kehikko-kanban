@@ -156,6 +156,14 @@ export function Screen({
     if (footerSaid) footer?.(JSON.parse(footerSaid))
   }, [footer, footerSaid])
 
+  /* The host's cover is held until the page is drawn (protocol 2.70.0): once the board is read, or the read
+     failed, or there is no epic to read, or a cover says why there is nothing to draw. */
+  const drawn = cover !== null ? cover !== 'waiting' : !host.epic || board.board !== null || Boolean(board.readError)
+  const { ready } = host
+  useEffect(() => {
+    if (drawn) ready?.()
+  }, [drawn, ready])
+
   return (
     <div ref={measured} className="bg-background text-foreground flex h-screen min-w-0 flex-col text-sm">
       {/* Hosted, the host draws the header items in the container's own header. Alone, the page does. */}
@@ -178,7 +186,7 @@ export function Screen({
               </p>
             ))}
             {!board.board ? (
-              board.readError ? null : <Empty>Reading the epic’s work…</Empty>
+              null
             ) : !board.cards.length ? (
               <Empty>This epic names no issue, pull request or merge request yet. Add them to its steps, and they show here.</Empty>
             ) : empty ? (

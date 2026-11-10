@@ -1,0 +1,64 @@
+[
+  {
+    "name": "a board",
+    "header": [
+      {
+        "kind": "switch",
+        "id": "density",
+        "label": "Cards",
+        "agents": true,
+        "options": [
+          {
+            "id": "compact",
+            "label": "Compact"
+          },
+          {
+            "id": "comfortable",
+            "label": "Comfortable"
+          }
+        ],
+        "value": "compact"
+      },
+      {
+        "kind": "toggle",
+        "id": "done",
+        "label": "Show Done",
+        "agents": true,
+        "checked": false
+      }
+    ],
+    "footer": [
+      {
+        "kind": "text",
+        "id": "columns",
+        "text": "To do 3 · Doing 2 · Done 5",
+        "level": "normal",
+        "align": "start",
+        "optional": false,
+        "tooltip": "To do 3 · Doing 2 · Done 5"
+      },
+      {
+        "kind": "text",
+        "id": "moves",
+        "text": "2 moved",
+        "level": "normal",
+        "align": "end",
+        "optional": true,
+        "tooltip": "Moves stay on this board, kept in this project: GitHub and GitLab are not changed. Alt+arrows move the focused card."
+      },
+      {
+        "kind": "run",
+        "id": "reset",
+        "label": "Put all cards back",
+        "icon": "undo",
+        "agents": false,
+        "state": "idle",
+        "result": null,
+        "disabled": null,
+        "confirm": true,
+        "align": "end",
+        "optional": false
+      }
+    ]
+  }
+]
