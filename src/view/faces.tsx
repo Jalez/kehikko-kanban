@@ -7,7 +7,7 @@ import { FACES_SHOWN, imageLoadable, initialsOf } from '@/lib/faces'
 import type { CardPerson } from '../board/cards.ts'
 
 /**
- * Tiny round avatars, overlapping, `+N` past three — as References draws them. A face with no
+ * Tiny round avatars, overlapping, `+N` past three — as a ref list draws them. A face with no
  * picture, one the page's image policy does not name, or one that fails to load is the person's
  * initials on a plain disc. A reviewer's face carries a badge whose SHAPE says their state (an
  * hourglass for asked, an eye for commented, a ring with a bang for changes, a ring with a tick

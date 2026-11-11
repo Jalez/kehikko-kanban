@@ -1,7 +1,7 @@
 import type { TrackerRow } from 'kehikot-module-protocol'
 
 /**
- * Which people's pictures this page may load, the way References draws them (protocol 2.10.0
+ * Which people's pictures this page may load, the way a ref list draws them (protocol 2.10.0
  * `people`): only from the avatar hosts a tracker uses — GitHub's avatar CDN for GitHub, the GitLab
  * host itself and Gravatar for GitLab — and only once the page has pinned an `img-src` policy naming
  * those hosts. A picture that may not be loaded, or does not load, is the person's initials.

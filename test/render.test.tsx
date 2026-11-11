@@ -74,7 +74,7 @@ function host(over: Partial<Host> = {}): Host {
     header: () => {},
     request: reading(),
     answers: ['tracker.get', 'tracker.refresh', 'address.open', 'state.set'],
-    openAddress: async () => ({ outcome: 'opened' as const, by: 'kehikot.browser' }) as never,
+    openAddress: async () => ({ outcome: 'opened' as const, by: 'kehikot.example' }) as never,
     refreshable: () => {},
     remember: () => {},
     kept: null,
