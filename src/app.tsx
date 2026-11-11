@@ -165,7 +165,7 @@ export function Screen({
   }, [drawn, ready])
 
   return (
-    <div ref={measured} className="bg-background text-foreground flex h-screen min-w-0 flex-col text-sm">
+    <div data-kehikot-page ref={measured} className="text-foreground flex h-screen min-w-0 flex-col text-sm">
       {/* Hosted, the host draws the header items in the container's own header. Alone, the page does. */}
       {host.where === 'unhosted' ? (
         <header className="flex min-h-9 shrink-0 items-center gap-2 border-b px-2">
