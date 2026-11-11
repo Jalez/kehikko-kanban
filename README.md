@@ -18,7 +18,7 @@ login and never calls a tracker itself.
   request, merge request), title, labels, who is assigned (their pictures, or
   initials), reviewers and where the review stands. Every state is an icon of
   its own shape and a word, never a colour alone. Pressing a card opens it on
-  the canvas (a Browser there shows it), or in a new tab.
+  the canvas (a page viewer there shows it), or in a new tab.
 - **Moving a card changes this board only.** Drag a card, use its ⋯ menu, or
   press Alt+arrows on a focused card. The card is marked "Moved here by you"
   with **Put back** beside it, and the order you leave a column in is kept.

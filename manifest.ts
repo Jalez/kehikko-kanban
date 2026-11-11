@@ -135,4 +135,12 @@ export const DECLARED: Manifest = manifestSchema.parse({
     prompt: false,
   },
   health: '/healthz',
+  /* What this module provides to others (protocol 2.85.0), found through `services.find`. It is the
+     only writer of `.kehikot/kanban/`. */
+  services: {
+    'module.folders': {
+      name: 'Kanban',
+      folders: [{ folder: 'kanban', says: 'The moves made on each epic’s board, and which columns show.' }],
+    },
+  },
 })

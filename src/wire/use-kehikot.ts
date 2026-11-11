@@ -58,10 +58,10 @@ export interface Host
 /**
  * Whose changes move the board's content stamp: the host's own material, and an epic's steps. From
  * protocol 2.21.0 a host announces a change by ANY module that keeps steps as `CONTENT_STEPS`, so
- * the board follows whichever does. `kehikot.journeys` stays beside it for a host from before
- * 2.21.0, which announces only the module's own id; it goes when those hosts are gone.
+ * the board follows whichever does. Every host that can run this release has that: a host picks
+ * only releases whose protocol pin it meets, and this one's is far past 2.21.0.
  */
-export const CONTENT_SOURCES: readonly string[] = [CONTENT_HOST, CONTENT_STEPS, 'kehikot.journeys']
+export const CONTENT_SOURCES: readonly string[] = [CONTENT_HOST, CONTENT_STEPS]
 
 export function useKehikot(events: HostEvents = {}): Host {
   const host = useHost<View>(ID, events, { kept: VIEW_CODEC })
