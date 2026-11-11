@@ -18,7 +18,7 @@ export const HELP = {
     {
       title: 'How to use it',
       points: [
-        'Press a card, or Enter on it, to open it on the canvas; a Browser there shows it, otherwise a new tab.',
+        'Press a card, or Enter on it, to open it on the canvas; a page viewer there shows it, otherwise a new tab.',
         'Move a card by dragging it, with its ⋯ menu, or with Alt and the arrow keys. It is marked Moved here by you, with Put back beside it.',
         'View › Cards switches Compact and Comfortable, and Show Done folds or shows the Done column. Run › Put all cards back undoes every move after a second press.',
         'The gear on the container sets which columns show and how many days a finished item stays in Done.',
